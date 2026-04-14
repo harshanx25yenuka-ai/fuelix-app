@@ -1,0 +1,52 @@
+name: fuelix_app
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  sqflite: ^2.3.2
+  path: ^1.9.0
+  crypto: ^3.0.3
+  google_fonts: ^6.2.1
+  qr_flutter: ^4.1.0
+  shared_preferences: ^2.2.2
+
+  # ---------- Server connect -------------
+  http: ^1.1.0
+
+  # ---------- Fuel Screen ----------------
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+  geolocator: ^10.1.0
+  geocoding: ^2.1.1
+  url_launcher: ^6.2.5
+
+  # ---------- Signup ---------------------
+  country_code_picker: ^3.0.0
+
+  mobile_scanner: ^3.5.7  # Add this line
+
+  # web_socket_channel: ^2.4.0
+  # provider: ^6.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/app_logo.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/app_logo.png

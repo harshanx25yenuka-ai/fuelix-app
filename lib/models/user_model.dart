@@ -1,0 +1,188 @@
+class UserModel {
+  final int? id;
+  final String firstName;
+  final String lastName;
+  final String nic;
+  final String mobile;
+  // Address
+  final String addressLine1;
+  final String addressLine2;
+  final String addressLine3;
+  final String district;
+  final String province;
+  final String postalCode;
+  // Account
+  final String email;
+  final String password;
+  final String? role; // User role: CLIENT, STAFF, ADMIN
+  final DateTime? createdAt;
+
+  UserModel({
+    this.id,
+    required this.firstName,
+    required this.lastName,
+    required this.nic,
+    required this.mobile,
+    required this.addressLine1,
+    this.addressLine2 = '',
+    this.addressLine3 = '',
+    required this.district,
+    required this.province,
+    required this.postalCode,
+    required this.email,
+    required this.password,
+    this.role,
+    this.createdAt,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'first_name': firstName,
+      'last_name': lastName,
+      'nic': nic,
+      'mobile': mobile,
+      'address_line1': addressLine1,
+      'address_line2': addressLine2,
+      'address_line3': addressLine3,
+      'district': district,
+      'province': province,
+      'postal_code': postalCode,
+      'email': email,
+      'password': password,
+      'role': role,
+      'created_at':
+          createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+    };
+  }
+
+  factory UserModel.fromMap(Map<String, dynamic> map) {
+    return UserModel(
+      id: map['id'] as int?,
+      firstName:
+          map['first_name'] as String? ?? map['firstName'] as String? ?? '',
+      lastName: map['last_name'] as String? ?? map['lastName'] as String? ?? '',
+      nic: map['nic'] as String? ?? '',
+      mobile: map['mobile'] as String? ?? '',
+      addressLine1:
+          map['address_line1'] as String? ??
+          map['addressLine1'] as String? ??
+          '',
+      addressLine2:
+          map['address_line2'] as String? ??
+          map['addressLine2'] as String? ??
+          '',
+      addressLine3:
+          map['address_line3'] as String? ??
+          map['addressLine3'] as String? ??
+          '',
+      district: map['district'] as String? ?? '',
+      province: map['province'] as String? ?? '',
+      postalCode:
+          map['postal_code'] as String? ?? map['postalCode'] as String? ?? '',
+      email: map['email'] as String? ?? '',
+      password: map['password'] as String? ?? '',
+      role: map['role'] as String?,
+      createdAt: map['created_at'] != null
+          ? DateTime.tryParse(map['created_at'] as String)
+          : null,
+    );
+  }
+
+  factory UserModel.fromJson(Map<String, dynamic> json) {
+    return UserModel(
+      id: json['id'] as int?,
+      firstName:
+          json['firstName'] as String? ?? json['first_name'] as String? ?? '',
+      lastName:
+          json['lastName'] as String? ?? json['last_name'] as String? ?? '',
+      nic: json['nic'] as String? ?? '',
+      mobile: json['mobile'] as String? ?? '',
+      addressLine1:
+          json['addressLine1'] as String? ??
+          json['address_line1'] as String? ??
+          '',
+      addressLine2:
+          json['addressLine2'] as String? ??
+          json['address_line2'] as String? ??
+          '',
+      addressLine3:
+          json['addressLine3'] as String? ??
+          json['address_line3'] as String? ??
+          '',
+      district: json['district'] as String? ?? '',
+      province: json['province'] as String? ?? '',
+      postalCode:
+          json['postalCode'] as String? ?? json['postal_code'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      password: json['password'] as String? ?? '',
+      role: json['role'] as String?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String)
+          : null,
+    );
+  }
+
+  UserModel copyWith({
+    int? id,
+    String? firstName,
+    String? lastName,
+    String? nic,
+    String? mobile,
+    String? addressLine1,
+    String? addressLine2,
+    String? addressLine3,
+    String? district,
+    String? province,
+    String? postalCode,
+    String? email,
+    String? password,
+    String? role,
+    DateTime? createdAt,
+  }) {
+    return UserModel(
+      id: id ?? this.id,
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
+      nic: nic ?? this.nic,
+      mobile: mobile ?? this.mobile,
+      addressLine1: addressLine1 ?? this.addressLine1,
+      addressLine2: addressLine2 ?? this.addressLine2,
+      addressLine3: addressLine3 ?? this.addressLine3,
+      district: district ?? this.district,
+      province: province ?? this.province,
+      postalCode: postalCode ?? this.postalCode,
+      email: email ?? this.email,
+      password: password ?? this.password,
+      role: role ?? this.role,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  String get fullName => '$firstName $lastName';
+
+  String get fullAddress {
+    final parts = [
+      addressLine1,
+      addressLine2,
+      addressLine3,
+      district,
+      province,
+    ].where((p) => p.isNotEmpty).toList();
+    return parts.join(', ');
+  }
+
+  /// Check if user has staff role (includes ADMIN and STAFF)
+  bool get isStaff =>
+      role?.toUpperCase() == 'STAFF' || role?.toUpperCase() == 'ADMIN';
+
+  /// Check if user is admin
+  bool get isAdmin => role?.toUpperCase() == 'ADMIN';
+
+  /// Check if user is client (regular user)
+  bool get isClient => role?.toUpperCase() == 'CLIENT' || role == null;
+
+  @override
+  String toString() =>
+      'UserModel(id: $id, fullName: $fullName, nic: $nic, mobile: $mobile, email: $email, role: $role)';
+}

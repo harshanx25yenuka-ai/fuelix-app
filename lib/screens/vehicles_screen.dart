@@ -1,0 +1,1872 @@
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../theme/app_theme.dart';
+import '../models/user_model.dart';
+import '../models/vehicle_model.dart';
+import '../models/quota_model.dart';
+import '../services/quota_service.dart';
+import '../services/tutorial_service.dart';
+import '../services/api_service.dart';
+import '../database/db_helper.dart';
+import '../widgets/custom_button.dart';
+import '../widgets/tutorial_overlay.dart';
+import 'fuel_pass_sheet.dart';
+
+const _kVehicleTypes = [
+  'Car',
+  'Motorcycle',
+  'Van',
+  'Truck',
+  'Bus',
+  'Three-Wheeler',
+];
+const _kFuelTypes = ['Petrol', 'Diesel', 'Electric', 'Hybrid', 'LPG'];
+
+Color vehicleTypeColor(String type) {
+  switch (type) {
+    case 'Car':
+      return AppColors.ocean;
+    case 'Motorcycle':
+      return AppColors.amber;
+    case 'Van':
+      return AppColors.emerald;
+    case 'Truck':
+      return const Color(0xFFEF4444);
+    case 'Bus':
+      return const Color(0xFF7C3AED);
+    case 'Three-Wheeler':
+      return const Color(0xFFF97316);
+    default:
+      return AppColors.emerald;
+  }
+}
+
+IconData vehicleTypeIcon(String type) {
+  switch (type) {
+    case 'Car':
+      return Icons.directions_car_rounded;
+    case 'Motorcycle':
+      return Icons.two_wheeler_rounded;
+    case 'Van':
+      return Icons.airport_shuttle_rounded;
+    case 'Truck':
+      return Icons.local_shipping_rounded;
+    case 'Bus':
+      return Icons.directions_bus_rounded;
+    case 'Three-Wheeler':
+      return Icons.electric_rickshaw_rounded;
+    default:
+      return Icons.directions_car_rounded;
+  }
+}
+
+class VehiclesScreen extends StatefulWidget {
+  const VehiclesScreen({super.key});
+
+  @override
+  State<VehiclesScreen> createState() => _VehiclesScreenState();
+}
+
+class _VehiclesScreenState extends State<VehiclesScreen>
+    with SingleTickerProviderStateMixin {
+  final _db = DbHelper();
+  final _apiService = ApiService();
+  UserModel? _user;
+  List<VehicleModel> _vehicles = [];
+  bool _loading = true;
+  bool _isRefreshing = false;
+
+  final _keyAddBtn = GlobalKey();
+  final _keyVehicleCard = GlobalKey();
+  final _keyFuelPass = GlobalKey();
+  bool _showTour = false;
+
+  late AnimationController _animCtrl;
+  late Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+    );
+    _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final u = ModalRoute.of(context)?.settings.arguments as UserModel?;
+    if (_user == null && u != null) {
+      _user = u;
+      _loadVehicles();
+      _checkVehiclesTour();
+    }
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkVehiclesTour() async {
+    final seen = await TutorialService.isSeen(TutorialKey.vehiclesTour);
+    if (!seen && mounted) {
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (mounted) setState(() => _showTour = true);
+    }
+  }
+
+  Future<void> _loadVehicles() async {
+    if (_user?.id == null) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    final result = await _apiService.getVehicles(_user!.id!);
+
+    if (result['success']) {
+      List<dynamic> vehiclesJson = result['data'];
+      List<VehicleModel> vehicles = vehiclesJson
+          .map(
+            (json) => VehicleModel(
+              id: json['id'],
+              userId: json['userId'],
+              type: json['type'],
+              make: json['make'],
+              model: json['model'],
+              year: json['year'],
+              registrationNo: json['registrationNo'],
+              fuelType: json['fuelType'],
+              engineCC: json['engineCC'] ?? '',
+              color: json['color'] ?? '',
+              fuelPassCode: json['fuelPassCode'], // Decrypted code from backend
+              qrGeneratedAt: json['qrGeneratedAt'] != null
+                  ? DateTime.tryParse(json['qrGeneratedAt'])
+                  : null,
+              createdAt: json['createdAt'] != null
+                  ? DateTime.tryParse(json['createdAt'])
+                  : null,
+            ),
+          )
+          .toList();
+
+      for (var v in vehicles) {
+        await _db.insertVehicle(v);
+      }
+
+      if (mounted) {
+        setState(() {
+          _vehicles = vehicles;
+          _loading = false;
+        });
+      }
+    } else {
+      final list = await _db.getVehiclesByUser(_user!.id!);
+      if (mounted) {
+        setState(() {
+          _vehicles = list;
+          _loading = false;
+        });
+      }
+    }
+
+    _animCtrl.forward(from: 0);
+  }
+
+  Future<void> _refreshVehicles() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    await _loadVehicles();
+    setState(() => _isRefreshing = false);
+  }
+
+  Future<void> _openForm({VehicleModel? vehicle}) async {
+    if (vehicle?.isLocked == true) {
+      _showFuelPass(vehicle!);
+      return;
+    }
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _VehicleFormSheet(
+        user: _user!,
+        vehicle: vehicle,
+        db: _db,
+        apiService: _apiService,
+        onVehicleUpdated: _refreshVehicles,
+      ),
+    );
+    if (result == true) {
+      await _refreshVehicles();
+      if (mounted) Navigator.pop(context, true);
+    }
+  }
+
+  void _showFuelPass(VehicleModel v) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FuelPassSheet(
+        vehicle: v,
+        db: _db,
+        apiService: _apiService,
+        onQuotaUpdated: _refreshVehicles,
+      ),
+    );
+  }
+
+  Future<void> _confirmGenerateQr(VehicleModel v) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark
+            ? AppColors.darkSurface
+            : AppColors.lightSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: const LinearGradient(
+                  colors: [AppColors.emerald, AppColors.ocean],
+                ),
+              ),
+              child: const Icon(
+                Icons.qr_code_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Generate Fuel Pass',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'A unique QR Fuel Pass will be generated for:',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: AppColors.amber.withOpacity(isDark ? 0.12 : 0.08),
+                border: Border.all(color: AppColors.amber.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 18,
+                    color: AppColors.amber,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Once generated, vehicle details cannot be edited and this QR cannot be regenerated.',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppColors.amber,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Generate',
+              style: TextStyle(color: AppColors.emerald),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true || !mounted) return;
+
+    setState(() => _loading = true);
+
+    final result = await _apiService.generateFuelPass(v.id!);
+
+    setState(() => _loading = false);
+
+    if (!mounted) return;
+
+    if (result['success']) {
+      await _refreshVehicles();
+      final updated = _vehicles.firstWhere((x) => x.id == v.id);
+      _showFuelPass(updated);
+      if (mounted) Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['error']),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmDelete(VehicleModel v) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark
+            ? AppColors.darkSurface
+            : AppColors.lightSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Remove Vehicle',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        content: Text(
+          'Remove ${v.displayName} (${v.registrationNo}) from your garage?\n\nThis will also delete all fuel logs associated with this vehicle.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Remove',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      setState(() => _loading = true);
+      final result = await _apiService.deleteVehicle(v.id!);
+      if (result['success']) {
+        await _db.deleteVehicle(v.id!);
+        await _refreshVehicles();
+        if (mounted) Navigator.pop(context, true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final screen = Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isDark
+                ? [const Color(0xFF0D1117), const Color(0xFF0A1628)]
+                : [const Color(0xFFF0FDF8), const Color(0xFFEFF6FF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _refreshVehicles,
+            color: AppColors.emerald,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context, false),
+                        child: _iconBtn(
+                          Icons.arrow_back_ios_new_rounded,
+                          isDark,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          'My Vehicles',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                      ),
+                      KeyedSubtree(
+                        key: _keyAddBtn,
+                        child: GestureDetector(
+                          onTap: _user != null ? () => _openForm() : null,
+                          child: Container(
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              gradient: const LinearGradient(
+                                colors: [AppColors.emerald, AppColors.ocean],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.emerald.withOpacity(0.3),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.add_rounded,
+                                  size: 18,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Add',
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Expanded(
+                  child: _loading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.emerald,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : _vehicles.isEmpty
+                      ? _EmptyGarage(
+                          isDark: isDark,
+                          onAdd: () => _openForm(),
+                          tutorialKey: _keyVehicleCard,
+                        )
+                      : FadeTransition(
+                          opacity: _fadeAnim,
+                          child: ListView.separated(
+                            physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(24, 4, 24, 32),
+                            itemCount: _vehicles.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 12),
+                            itemBuilder: (_, i) => _VehicleCard(
+                              vehicle: _vehicles[i],
+                              isDark: isDark,
+                              onEdit: () => _openForm(vehicle: _vehicles[i]),
+                              onDelete: () => _confirmDelete(_vehicles[i]),
+                              onGenerateQr: () =>
+                                  _confirmGenerateQr(_vehicles[i]),
+                              onViewFuelPass: () => _showFuelPass(_vehicles[i]),
+                              cardKey: i == 0 ? _keyVehicleCard : null,
+                              fuelPassKey: i == 0 ? _keyFuelPass : null,
+                            ),
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!_showTour) return screen;
+
+    final List<TourStep> steps = [
+      TourStep(
+        targetKey: _keyAddBtn,
+        title: 'Add a Vehicle',
+        body:
+            'Tap here to register a new vehicle — car, bike, van or any other type.',
+        icon: Icons.add_rounded,
+        gradient: [AppColors.emerald, AppColors.ocean],
+        position: TooltipPosition.below,
+      ),
+      TourStep(
+        targetKey: _keyVehicleCard,
+        title: _vehicles.isEmpty ? 'Your Garage' : 'Vehicle Card',
+        body: _vehicles.isEmpty
+            ? 'Your registered vehicles will appear here.'
+            : 'Each vehicle card shows its type, registration number, fuel type and Fuel Pass status.',
+        icon: Icons.directions_car_rounded,
+        gradient: [AppColors.ocean, AppColors.emerald],
+        position: TooltipPosition.below,
+      ),
+      if (_vehicles.isNotEmpty)
+        TourStep(
+          targetKey: _keyFuelPass,
+          title: 'Get Fuel Pass',
+          body:
+              'Generate a unique QR Fuel Pass for this vehicle. Once generated, vehicle details are locked permanently.',
+          icon: Icons.qr_code_rounded,
+          gradient: [AppColors.emerald, AppColors.ocean],
+          position: TooltipPosition.above,
+        ),
+    ];
+
+    return SpotlightTour(
+      steps: steps,
+      onComplete: () async {
+        await TutorialService.markSeen(TutorialKey.vehiclesTour);
+        if (mounted) setState(() => _showTour = false);
+      },
+      child: screen,
+    );
+  }
+
+  Widget _iconBtn(IconData icon, bool isDark) => Container(
+    width: 42,
+    height: 42,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(12),
+      color: isDark ? AppColors.darkSurfaceAlt : AppColors.lightSurfaceAlt,
+      border: Border.all(
+        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+      ),
+    ),
+    child: Icon(
+      icon,
+      size: 16,
+      color: isDark ? AppColors.darkTextSub : AppColors.lightTextSub,
+    ),
+  );
+}
+
+class _VehicleCard extends StatelessWidget {
+  final VehicleModel vehicle;
+  final bool isDark;
+  final VoidCallback onEdit, onDelete, onGenerateQr, onViewFuelPass;
+  final Key? cardKey;
+  final Key? fuelPassKey;
+
+  const _VehicleCard({
+    required this.vehicle,
+    required this.isDark,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onGenerateQr,
+    required this.onViewFuelPass,
+    this.cardKey,
+    this.fuelPassKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = vehicleTypeColor(vehicle.type);
+    final locked = vehicle.isLocked;
+
+    return KeyedSubtree(
+      key: cardKey,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+          border: Border.all(
+            color: locked
+                ? AppColors.emerald.withOpacity(0.35)
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+            width: locked ? 1.5 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (locked ? AppColors.emerald : accent).withOpacity(0.07),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
+              child: Row(
+                children: [
+                  Stack(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(13),
+                          gradient: LinearGradient(
+                            colors: [accent, accent.withOpacity(0.7)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: accent.withOpacity(0.28),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          vehicleTypeIcon(vehicle.type),
+                          size: 22,
+                          color: Colors.white,
+                        ),
+                      ),
+                      if (locked)
+                        Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppColors.emerald,
+                              border: Border.all(
+                                color: isDark
+                                    ? AppColors.darkSurface
+                                    : AppColors.lightSurface,
+                                width: 2,
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.lock_rounded,
+                              size: 9,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          vehicle.displayName,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            _Tag(
+                              label: vehicle.registrationNo,
+                              color: accent,
+                              isDark: isDark,
+                            ),
+                            const SizedBox(width: 6),
+                            _Tag(
+                              label: vehicle.fuelType,
+                              color: AppColors.emerald,
+                              isDark: isDark,
+                            ),
+                            if (locked) ...[
+                              const SizedBox(width: 6),
+                              _Tag(
+                                label:
+                                    vehicle.fuelPassCode != null &&
+                                        vehicle.fuelPassCode!.length >= 4
+                                    ? vehicle.fuelPassCode!.substring(0, 4)
+                                    : 'PASS',
+                                color: AppColors.emerald,
+                                isDark: isDark,
+                                icon: Icons.qr_code_rounded,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (val) {
+                      switch (val) {
+                        case 'qr':
+                          onGenerateQr();
+                          break;
+                        case 'pass':
+                          onViewFuelPass();
+                          break;
+                        case 'edit':
+                          onEdit();
+                          break;
+                        case 'delete':
+                          onDelete();
+                          break;
+                      }
+                    },
+                    color: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    icon: Icon(
+                      Icons.more_vert_rounded,
+                      size: 20,
+                      color: isDark
+                          ? AppColors.darkTextSub
+                          : AppColors.lightTextSub,
+                    ),
+                    itemBuilder: (_) => [
+                      if (!locked)
+                        _menuItem(
+                          'qr',
+                          Icons.qr_code_rounded,
+                          'Generate Fuel Pass',
+                          AppColors.emerald,
+                        ),
+                      if (!locked)
+                        _menuItem(
+                          'edit',
+                          Icons.edit_outlined,
+                          'Edit',
+                          AppColors.ocean,
+                        ),
+                      if (locked)
+                        _menuItem(
+                          'pass',
+                          Icons.qr_code_2_rounded,
+                          'View Fuel Pass',
+                          AppColors.emerald,
+                        ),
+                      _menuItem(
+                        'delete',
+                        Icons.delete_outline_rounded,
+                        'Remove',
+                        AppColors.error,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Divider(
+              height: 1,
+              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+              child: Row(
+                children: [
+                  _Chip(
+                    icon: Icons.category_outlined,
+                    label: vehicle.type,
+                    isDark: isDark,
+                  ),
+                  if (vehicle.engineCC.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    _Chip(
+                      icon: Icons.settings_rounded,
+                      label: '${vehicle.engineCC} cc',
+                      isDark: isDark,
+                    ),
+                  ],
+                  if (vehicle.color.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    _Chip(
+                      icon: Icons.circle_rounded,
+                      label: vehicle.color,
+                      isDark: isDark,
+                    ),
+                  ],
+                  const Spacer(),
+                  if (!locked)
+                    KeyedSubtree(
+                      key: fuelPassKey,
+                      child: GestureDetector(
+                        onTap: onGenerateQr,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            gradient: const LinearGradient(
+                              colors: [AppColors.emerald, AppColors.ocean],
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.qr_code_rounded,
+                                size: 13,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'Get Fuel Pass',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    GestureDetector(
+                      onTap: onViewFuelPass,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: AppColors.emerald.withOpacity(
+                            isDark ? 0.15 : 0.10,
+                          ),
+                          border: Border.all(
+                            color: AppColors.emerald.withOpacity(0.4),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.qr_code_2_rounded,
+                              size: 13,
+                              color: AppColors.emerald,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              'View Pass',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.emerald,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(
+    String val,
+    IconData icon,
+    String label,
+    Color color,
+  ) {
+    return PopupMenuItem(
+      value: val,
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool isDark;
+  final IconData? icon;
+  const _Tag({
+    required this.label,
+    required this.color,
+    required this.isDark,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(6),
+      color: color.withOpacity(isDark ? 0.15 : 0.10),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 9, color: color),
+          const SizedBox(width: 3),
+        ],
+        Text(
+          label,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _Chip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isDark;
+  const _Chip({required this.icon, required this.label, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(
+        icon,
+        size: 13,
+        color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+      ),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: GoogleFonts.inter(
+          fontSize: 12,
+          color: isDark ? AppColors.darkTextSub : AppColors.lightTextSub,
+        ),
+      ),
+    ],
+  );
+}
+
+class _EmptyGarage extends StatelessWidget {
+  final bool isDark;
+  final VoidCallback onAdd;
+  final Key? tutorialKey;
+  const _EmptyGarage({
+    required this.isDark,
+    required this.onAdd,
+    this.tutorialKey,
+  });
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 90,
+            height: 90,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.emerald.withOpacity(0.15),
+                  AppColors.ocean.withOpacity(0.15),
+                ],
+              ),
+            ),
+            child: Icon(
+              Icons.directions_car_outlined,
+              size: 40,
+              color: isDark
+                  ? AppColors.darkTextMuted
+                  : AppColors.lightTextMuted,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'No vehicles added',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: isDark ? AppColors.darkText : AppColors.lightText,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Add your vehicles to track fuel consumption and trips.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              height: 1.5,
+              color: isDark ? AppColors.darkTextSub : AppColors.lightTextSub,
+            ),
+          ),
+          const SizedBox(height: 28),
+          KeyedSubtree(
+            key: tutorialKey,
+            child: GradientButton(
+              label: 'Add First Vehicle',
+              onPressed: onAdd,
+              colors: [AppColors.emerald, AppColors.ocean],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _VehicleFormSheet extends StatefulWidget {
+  final UserModel user;
+  final VehicleModel? vehicle;
+  final DbHelper db;
+  final ApiService apiService;
+  final VoidCallback onVehicleUpdated;
+
+  const _VehicleFormSheet({
+    required this.user,
+    required this.db,
+    required this.apiService,
+    this.vehicle,
+    required this.onVehicleUpdated,
+  });
+
+  @override
+  State<_VehicleFormSheet> createState() => _VehicleFormSheetState();
+}
+
+class _VehicleFormSheetState extends State<_VehicleFormSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _regPrefixCtrl = TextEditingController();
+  final _regNumberCtrl = TextEditingController();
+  final _modelCtrl = TextEditingController();
+  final _yearCtrl = TextEditingController();
+  final _engCtrl = TextEditingController();
+  final _colorCtrl = TextEditingController();
+
+  String? _type;
+  String? _fuelType;
+  String? _selectedBrand;
+  int? _selectedBrandId;
+  List<dynamic> _brands = [];
+  List<dynamic> _models = [];
+  bool _isLoadingBrands = false;
+  bool _isLoadingModels = false;
+  bool _isSaving = false;
+
+  int _currentStep = 0;
+  bool _showModelsField = false;
+  String? _noModelsMessage;
+
+  bool get _isEdit => widget.vehicle != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final v = widget.vehicle;
+    if (v != null) {
+      _type = v.type;
+      _fuelType = v.fuelType;
+      _selectedBrand = v.make;
+      _modelCtrl.text = v.model;
+      _yearCtrl.text = v.year;
+      _engCtrl.text = v.engineCC;
+      _colorCtrl.text = v.color;
+      _currentStep = 3;
+      _showModelsField = true;
+
+      final regParts = v.registrationNo.split('-');
+      if (regParts.length == 2) {
+        _regPrefixCtrl.text = regParts[0];
+        _regNumberCtrl.text = regParts[1];
+      } else {
+        _regPrefixCtrl.text = v.registrationNo;
+      }
+      _loadBrands();
+    }
+  }
+
+  @override
+  void dispose() {
+    _regPrefixCtrl.dispose();
+    _regNumberCtrl.dispose();
+    _modelCtrl.dispose();
+    _yearCtrl.dispose();
+    _engCtrl.dispose();
+    _colorCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadBrands() async {
+    if (_type == null) return;
+
+    setState(() {
+      _isLoadingBrands = true;
+      _brands = [];
+      _selectedBrand = null;
+      _selectedBrandId = null;
+      _models = [];
+      _showModelsField = false;
+      _noModelsMessage = null;
+    });
+
+    try {
+      final result = await widget.apiService.getBrandsWithModelsByType(_type!);
+
+      if (result['success'] && mounted) {
+        final Map<String, dynamic> data = result['data'];
+        final List<String> brandNames = data.keys.toList();
+
+        setState(() {
+          _brands = brandNames.map((name) => {'brandName': name}).toList();
+          _isLoadingBrands = false;
+        });
+      } else {
+        setState(() {
+          _isLoadingBrands = false;
+          _noModelsMessage = "Failed to load brands. Please try again.";
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingBrands = false;
+        _noModelsMessage = "Network error. Please check your connection.";
+      });
+    }
+  }
+
+  Future<void> _loadModels() async {
+    if (_selectedBrand == null || _type == null) {
+      setState(() {
+        _models = [];
+        _showModelsField = false;
+        _noModelsMessage = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingModels = true;
+      _models = [];
+      _showModelsField = false;
+      _noModelsMessage = null;
+      _modelCtrl.clear();
+    });
+
+    try {
+      final result = await widget.apiService.getBrandsWithModelsByType(_type!);
+
+      if (result['success'] && mounted) {
+        final Map<String, dynamic> data = result['data'];
+        final List<String> modelsList =
+            (data[_selectedBrand] as List<dynamic>?)?.cast<String>() ?? [];
+
+        setState(() {
+          _models = modelsList.map((name) => {'modelName': name}).toList();
+          _isLoadingModels = false;
+
+          if (_models.isEmpty) {
+            _noModelsMessage =
+                "No models available for $_selectedBrand ${_type}s. Coming soon!";
+            _showModelsField = false;
+          } else {
+            _noModelsMessage = null;
+            _showModelsField = true;
+          }
+        });
+      } else {
+        setState(() {
+          _isLoadingModels = false;
+          _noModelsMessage = "Failed to load models. Please try again.";
+          _showModelsField = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingModels = false;
+        _noModelsMessage = "Network error. Please check your connection.";
+        _showModelsField = false;
+      });
+    }
+  }
+
+  void _onTypeSelected(String? value) {
+    setState(() {
+      _type = value;
+      _selectedBrand = null;
+      _selectedBrandId = null;
+      _models = [];
+      _modelCtrl.clear();
+      _showModelsField = false;
+      _noModelsMessage = null;
+      _currentStep = _type != null ? 1 : 0;
+    });
+    if (_type != null) {
+      _loadBrands();
+    }
+  }
+
+  void _onBrandSelected(String? value) {
+    setState(() {
+      _selectedBrand = value;
+      _modelCtrl.clear();
+      _models = [];
+      _showModelsField = false;
+      _noModelsMessage = null;
+      _currentStep = _selectedBrand != null ? 2 : 1;
+    });
+    if (_selectedBrand != null) {
+      _loadModels();
+    }
+  }
+
+  void _onModelSelected(String? value) {
+    setState(() {
+      _modelCtrl.text = value ?? '';
+      _currentStep = _modelCtrl.text.isNotEmpty ? 3 : 2;
+    });
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_fuelType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a fuel type.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    final registrationNo =
+        '${_regPrefixCtrl.text.trim().toUpperCase()}-${_regNumberCtrl.text.trim()}';
+
+    final vehicleData = {
+      'userId': widget.user.id,
+      'type': _type!,
+      'make': _selectedBrand!,
+      'model': _modelCtrl.text.trim(),
+      'year': _yearCtrl.text.trim(),
+      'registrationNo': registrationNo,
+      'fuelType': _fuelType!,
+      'engineCC': _engCtrl.text.trim(),
+      'color': _colorCtrl.text.trim(),
+    };
+
+    Map<String, dynamic> result;
+    if (_isEdit) {
+      result = await widget.apiService.updateVehicle(
+        widget.vehicle!.id!,
+        vehicleData,
+      );
+    } else {
+      result = await widget.apiService.addVehicle(vehicleData);
+    }
+
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (result['success']) {
+      widget.onVehicleUpdated();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_isEdit ? 'Vehicle updated!' : 'Vehicle added!'),
+          backgroundColor: AppColors.emerald,
+        ),
+      );
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['error']),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mq = MediaQuery.of(context);
+
+    bool isTypeEnabled = !_isEdit;
+    bool isBrandEnabled = _type != null && !_isEdit && _brands.isNotEmpty;
+    bool isModelEnabled =
+        _showModelsField &&
+        _models.isNotEmpty &&
+        !_isEdit &&
+        _selectedBrand != null;
+    bool isDetailsEnabled = (_modelCtrl.text.isNotEmpty && !_isEdit) || _isEdit;
+
+    return Container(
+      margin: EdgeInsets.only(top: mq.size.height * 0.08),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBackground : AppColors.lightBackground,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(2),
+              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: const LinearGradient(
+                      colors: [AppColors.emerald, AppColors.ocean],
+                    ),
+                  ),
+                  child: Icon(
+                    _isEdit ? Icons.edit_rounded : Icons.add_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _isEdit ? 'Edit Vehicle' : 'Add Vehicle',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context, false),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: isDark
+                          ? AppColors.darkSurfaceAlt
+                          : AppColors.lightSurfaceAlt,
+                    ),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: isDark
+                          ? AppColors.darkTextSub
+                          : AppColors.lightTextSub,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                24,
+                0,
+                24,
+                mq.viewInsets.bottom + 32,
+              ),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Label('Step 1: Vehicle Type', isDark),
+                    _Dropdown(
+                      label: 'Select Vehicle Type',
+                      value: _type,
+                      items: _kVehicleTypes,
+                      icon: Icons.category_outlined,
+                      isDark: isDark,
+                      enabled: isTypeEnabled,
+                      onChanged: _onTypeSelected,
+                      validator: (v) =>
+                          v == null ? 'Select vehicle type' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    _Label('Step 2: Brand', isDark),
+                    _isLoadingBrands && _type != null
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.emerald,
+                              ),
+                            ),
+                          )
+                        : _Dropdown(
+                            label: 'Select Brand',
+                            value: _selectedBrand,
+                            items: _brands
+                                .map((b) => b['brandName'] as String)
+                                .toList(),
+                            icon: Icons.branding_watermark_outlined,
+                            isDark: isDark,
+                            enabled: isBrandEnabled,
+                            onChanged: _onBrandSelected,
+                            validator: (v) => isBrandEnabled && v == null
+                                ? 'Select brand'
+                                : null,
+                          ),
+                    const SizedBox(height: 16),
+
+                    if (_showModelsField) ...[
+                      _Label('Step 3: Model', isDark),
+                      _isLoadingModels
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.emerald,
+                                ),
+                              ),
+                            )
+                          : _Dropdown(
+                              label: 'Select Model',
+                              value: _modelCtrl.text.isEmpty
+                                  ? null
+                                  : _modelCtrl.text,
+                              items: _models
+                                  .map((m) => m['modelName'] as String)
+                                  .toList(),
+                              icon: Icons.directions_car_outlined,
+                              isDark: isDark,
+                              enabled: isModelEnabled,
+                              onChanged: _onModelSelected,
+                              validator: (v) =>
+                                  isModelEnabled && _modelCtrl.text.isEmpty
+                                  ? 'Select model'
+                                  : null,
+                            ),
+                      const SizedBox(height: 16),
+                    ] else if (_noModelsMessage != null &&
+                        !_isEdit &&
+                        _type != null &&
+                        _selectedBrand != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: AppColors.amber.withOpacity(
+                            isDark ? 0.12 : 0.08,
+                          ),
+                          border: Border.all(
+                            color: AppColors.amber.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline_rounded,
+                              size: 18,
+                              color: AppColors.amber,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _noModelsMessage!,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: AppColors.amber,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    _Label('Step 4: Year', isDark),
+                    AppTextField(
+                      label: 'Year',
+                      hint: '2020',
+                      controller: _yearCtrl,
+                      prefixIcon: Icons.calendar_today_outlined,
+                      keyboardType: TextInputType.number,
+                      readOnly: !isDetailsEnabled && !_isEdit,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(4),
+                      ],
+                      validator: (v) {
+                        if (!isDetailsEnabled && !_isEdit) return null;
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        final y = int.tryParse(v.trim());
+                        if (y == null ||
+                            y < 1950 ||
+                            y > DateTime.now().year + 1)
+                          return 'Invalid';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    _Label('Step 5: Registration Number', isDark),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: AppTextField(
+                            label: 'Letters',
+                            hint: 'KN',
+                            controller: _regPrefixCtrl,
+                            prefixIcon: Icons.confirmation_number_outlined,
+                            textCapitalization: TextCapitalization.characters,
+                            readOnly: !isDetailsEnabled && !_isEdit,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'[A-Za-z]'),
+                              ),
+                              LengthLimitingTextInputFormatter(3),
+                            ],
+                            validator: (v) {
+                              if (!isDetailsEnabled && !_isEdit) return null;
+                              if (v == null || v.trim().isEmpty)
+                                return 'Required';
+                              final val = v.trim().toUpperCase();
+                              if (val.length < 2 || val.length > 3)
+                                return '2-3 letters';
+                              return null;
+                            },
+                          ),
+                        ),
+                        const Text(' - ', style: TextStyle(fontSize: 20)),
+                        Expanded(
+                          flex: 3,
+                          child: AppTextField(
+                            label: 'Numbers',
+                            hint: '6131',
+                            controller: _regNumberCtrl,
+                            keyboardType: TextInputType.number,
+                            readOnly: !isDetailsEnabled && !_isEdit,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(4),
+                            ],
+                            validator: (v) {
+                              if (!isDetailsEnabled && !_isEdit) return null;
+                              if (v == null || v.trim().isEmpty)
+                                return 'Required';
+                              if (v.trim().length != 4)
+                                return 'Must be 4 digits';
+                              return null;
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    _Label('Step 6: Fuel Type', isDark),
+                    _FuelPills(
+                      selected: _fuelType,
+                      isDark: isDark,
+                      enabled: isDetailsEnabled || _isEdit,
+                      onSelect: (f) => setState(() => _fuelType = f),
+                    ),
+                    if (_fuelType == null && (isDetailsEnabled || _isEdit))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, left: 4),
+                        child: Text(
+                          'Select a fuel type',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+
+                    _Label('Step 7: Additional Details (Optional)', isDark),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: AppTextField(
+                            label: 'Engine (cc)',
+                            hint: '1500',
+                            controller: _engCtrl,
+                            prefixIcon: Icons.settings_rounded,
+                            keyboardType: TextInputType.number,
+                            readOnly: !isDetailsEnabled && !_isEdit,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(5),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: AppTextField(
+                            label: 'Color',
+                            hint: 'Silver',
+                            controller: _colorCtrl,
+                            prefixIcon: Icons.palette_outlined,
+                            textCapitalization: TextCapitalization.words,
+                            readOnly: !isDetailsEnabled && !_isEdit,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+
+                    GradientButton(
+                      label: _isEdit ? 'Update Vehicle' : 'Add to Garage',
+                      onPressed:
+                          (_currentStep >= 3 || _isEdit) && _fuelType != null
+                          ? _save
+                          : null,
+                      isLoading: _isSaving,
+                      colors: [AppColors.emerald, AppColors.ocean],
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Label extends StatelessWidget {
+  final String text;
+  final bool isDark;
+  const _Label(this.text, this.isDark);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Text(
+      text,
+      style: GoogleFonts.spaceGrotesk(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+        letterSpacing: 0.6,
+      ),
+    ),
+  );
+}
+
+class _FuelPills extends StatelessWidget {
+  final String? selected;
+  final bool isDark;
+  final bool enabled;
+  final ValueChanged<String> onSelect;
+  const _FuelPills({
+    required this.selected,
+    required this.isDark,
+    required this.onSelect,
+    this.enabled = true,
+  });
+
+  Color _col(String f) {
+    switch (f) {
+      case 'Petrol':
+        return AppColors.amber;
+      case 'Diesel':
+        return AppColors.ocean;
+      case 'Electric':
+        return AppColors.emerald;
+      case 'Hybrid':
+        return const Color(0xFF7C3AED);
+      case 'LPG':
+        return const Color(0xFFEF4444);
+      default:
+        return AppColors.emerald;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: _kFuelTypes.map((f) {
+      final sel = f == selected;
+      final c = _col(f);
+      return GestureDetector(
+        onTap: enabled ? () => onSelect(f) : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            color: sel
+                ? c.withOpacity(isDark ? 0.2 : 0.12)
+                : (isDark
+                      ? AppColors.darkSurfaceAlt
+                      : AppColors.lightSurfaceAlt),
+            border: Border.all(
+              color: sel
+                  ? c
+                  : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+              width: sel ? 1.5 : 1,
+            ),
+          ),
+          child: Text(
+            f,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: sel
+                  ? c
+                  : (isDark ? AppColors.darkTextSub : AppColors.lightTextSub),
+            ),
+          ),
+        ),
+      );
+    }).toList(),
+  );
+}
+
+class _Dropdown extends StatelessWidget {
+  final String label;
+  final String? value;
+  final List<String> items;
+  final IconData icon;
+  final bool isDark;
+  final bool enabled;
+  final ValueChanged<String?> onChanged;
+  final String? Function(String?)? validator;
+  const _Dropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.icon,
+    required this.isDark,
+    required this.onChanged,
+    this.validator,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bc = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final fc = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final tc = isDark ? AppColors.darkText : AppColors.lightText;
+    final hc = isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted;
+    return DropdownButtonFormField<String>(
+      value: value,
+      onChanged: enabled ? onChanged : null,
+      validator: validator,
+      isExpanded: true,
+      icon: Icon(Icons.keyboard_arrow_down_rounded, color: hc),
+      dropdownColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+      style: GoogleFonts.inter(fontSize: 14, color: enabled ? tc : hc),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(
+          icon,
+          size: 20,
+          color: enabled
+              ? (isDark ? AppColors.darkTextSub : AppColors.lightTextSub)
+              : hc,
+        ),
+        filled: true,
+        fillColor: fc,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: bc, width: 1.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: bc, width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.emerald, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.error, width: 1.5),
+        ),
+      ),
+      items: items
+          .map(
+            (i) => DropdownMenuItem(
+              value: i,
+              child: Text(
+                i,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: enabled ? tc : hc,
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
