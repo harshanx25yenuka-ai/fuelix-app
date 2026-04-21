@@ -1,5 +1,3 @@
-// File: lib/screens/fuel_pass_sheet.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fuelix_app/widgets/custom_button.dart';
@@ -314,127 +312,133 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                       ),
                     ),
 
-                    _isLoading
-                        ? Container(
-                            width: 200,
-                            height: 200,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              color: Colors.white,
-                            ),
-                            child: const Center(
-                              child: CircularProgressIndicator(
-                                color: AppColors.emerald,
-                              ),
-                            ),
-                          )
-                        : _errorMessage != null
-                        ? Container(
-                            width: 200,
-                            height: 200,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              color: Colors.white,
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.error_outline,
-                                  size: 48,
-                                  color: AppColors.error,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _errorMessage!,
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 12,
-                                    color: AppColors.error,
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: _isLoading
+                            ? Container(
+                                width: 200,
+                                height: 200,
+                                child: const Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.emerald,
                                   ),
                                 ),
-                              ],
-                            ),
-                          )
-                        : _qrData != null && _isValid
-                        ? Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              QrImageView(
-                                data: _qrData!,
-                                version: QrVersions.auto,
-                                size: 200,
-                                eyeStyle: const QrEyeStyle(
-                                  eyeShape: QrEyeShape.square,
-                                  color: Color(0xFF111827),
-                                ),
-                                dataModuleStyle: const QrDataModuleStyle(
-                                  dataModuleShape: QrDataModuleShape.square,
-                                  color: Color(0xFF111827),
-                                ),
-                              ),
-                              if (_isExpiringSoon)
-                                Positioned(
-                                  bottom: 0,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
+                              )
+                            : _errorMessage != null
+                            ? Container(
+                                width: 200,
+                                height: 200,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline,
+                                      size: 48,
+                                      color: AppColors.error,
                                     ),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      color: AppColors.amber,
-                                    ),
-                                    child: Text(
-                                      'Expires in ${_remainingSeconds}s',
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _errorMessage!,
+                                      textAlign: TextAlign.center,
                                       style: GoogleFonts.inter(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.white,
+                                        fontSize: 12,
+                                        color: AppColors.error,
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                            ],
-                          )
-                        : Container(
-                            width: 200,
-                            height: 200,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              color: Colors.white,
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.qr_code_scanner,
-                                  size: 48,
-                                  color: Colors.grey,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'QR Expired',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 14,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                GestureDetector(
-                                  onTap: _generateToken,
-                                  child: Text(
-                                    'Tap to refresh',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12,
-                                      color: AppColors.emerald,
-                                      fontWeight: FontWeight.w600,
+                              )
+                            : _qrData != null && _isValid
+                            ? Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  QrImageView(
+                                    data: _qrData!,
+                                    version: QrVersions.auto,
+                                    size: 200,
+                                    eyeStyle: const QrEyeStyle(
+                                      eyeShape: QrEyeShape.square,
+                                      color: Color(0xFF000000),
+                                    ),
+                                    dataModuleStyle: const QrDataModuleStyle(
+                                      dataModuleShape: QrDataModuleShape.square,
+                                      color: Color(0xFF000000),
                                     ),
                                   ),
+                                  if (_isExpiringSoon)
+                                    Positioned(
+                                      bottom: 0,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          color: AppColors.amber,
+                                        ),
+                                        child: Text(
+                                          'Expires in ${_remainingSeconds}s',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              )
+                            : Container(
+                                width: 200,
+                                height: 200,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.qr_code_scanner,
+                                      size: 48,
+                                      color: Colors.grey,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'QR Expired',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    GestureDetector(
+                                      onTap: _generateToken,
+                                      child: Text(
+                                        'Tap to refresh',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: AppColors.emerald,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
+                      ),
+                    ),
 
                     const SizedBox(height: 16),
 
