@@ -1511,6 +1511,486 @@ class ApiService {
     }
   }
 
+  // ==================== FAMILY SHARING APIs ====================
+
+  // Remove family member
+  Future<Map<String, dynamic>> removeFamilyMember(
+    int familyId,
+    int memberId,
+  ) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .delete(
+            Uri.parse('$baseUrl/family/member/$memberId?familyId=$familyId'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to remove member',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Get family info
+  Future<Map<String, dynamic>> getFamilyInfo() async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/info'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'data': data['data']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to get family info',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Create family
+  Future<Map<String, dynamic>> createFamily(String familyName) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/create'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({'familyName': familyName}),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'familyId': data['familyId'],
+          'familyName': data['familyName'],
+          'message': data['message'],
+        };
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to create family',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Invite to family
+  Future<Map<String, dynamic>> inviteToFamily(
+    int familyId,
+    String emailOrMobile,
+  ) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/invite'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({
+              'familyId': familyId,
+              'emailOrMobile': emailOrMobile,
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to send invitation',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Accept invitation
+  Future<Map<String, dynamic>> acceptInvitation(int familyId) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/accept'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({'familyId': familyId}),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to accept invitation',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Share vehicle with family member
+  Future<Map<String, dynamic>> shareVehicle(
+    int vehicleId,
+    int sharedWithUserId,
+  ) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/share-vehicle'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({
+              'vehicleId': vehicleId,
+              'sharedWithUserId': sharedWithUserId,
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to share vehicle',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Unshare vehicle
+  Future<Map<String, dynamic>> unshareVehicle(
+    int vehicleId,
+    int sharedWithUserId,
+  ) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .delete(
+            Uri.parse(
+              '$baseUrl/family/unshare-vehicle?vehicleId=$vehicleId&sharedWithUserId=$sharedWithUserId',
+            ),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to unshare vehicle',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Get shared vehicles (vehicles shared with me)
+  Future<Map<String, dynamic>> getSharedVehicles() async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/shared-vehicles'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'data': data['data']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to get shared vehicles',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Get vehicles shared by me
+  Future<Map<String, dynamic>> getVehiclesSharedByMe() async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/shared-by-me'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'data': data['data']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to get shared vehicles',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Top up shared wallet
+  Future<Map<String, dynamic>> topUpSharedWallet(
+    int familyId,
+    double amount,
+    String method, {
+    String? reference,
+  }) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final Map<String, dynamic> body = {
+        'familyId': familyId,
+        'amount': amount,
+        'method': method,
+      };
+      if (reference != null) body['reference'] = reference;
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/wallet/topup'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode(body),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'balance': data['balance'],
+          'message': data['message'],
+        };
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to top up wallet',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Get shared wallet details
+  Future<Map<String, dynamic>> getSharedWalletDetails(int familyId) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/wallet/$familyId'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'data': data['data']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to get wallet details',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  // Check if user can refuel shared vehicle
+  Future<Map<String, dynamic>> checkCanRefuelSharedVehicle(
+    int vehicleId,
+  ) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {
+          'success': false,
+          'error': 'Not authenticated',
+          'canRefuel': false,
+        };
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/can-refuel/$vehicleId'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      return {'success': true, 'canRefuel': data['canRefuel'] ?? false};
+    } catch (e) {
+      return {
+        'success': false,
+        'canRefuel': false,
+        'error': 'Network error: $e',
+      };
+    }
+  }
+
+  // Get family members
+  Future<Map<String, dynamic>> getFamilyMembers(int familyId) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/members/$familyId'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'data': data['data']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to get family members',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
   // Test connection to server
   static Future<bool> testConnection() async {
     try {

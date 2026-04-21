@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fuelix_app/models/user_model.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -9,8 +10,23 @@ import 'screens/profile_screen.dart';
 import 'screens/vehicles_screen.dart';
 import 'screens/topup_screen.dart';
 import 'screens/fuel_stations_screen.dart';
-import 'screens/fuel_log_screen.dart'; // Add this
-import 'screens/notifications_screen.dart'; // Add this
+import 'screens/fuel_log_screen.dart';
+import 'screens/notifications_screen.dart';
+import 'screens/fuel_pass_sheet.dart';
+import 'screens/staff_qr_scanner_screen.dart';
+import 'screens/delete_account_screen.dart';
+import 'screens/forgot_password_screen.dart';
+import 'screens/onboarding_screen.dart';
+
+// Family Sharing Screens
+import 'screens/family/family_home_screen.dart';
+import 'screens/family/create_family_screen.dart';
+import 'screens/family/family_members_screen.dart';
+import 'screens/family/invite_member_screen.dart';
+import 'screens/family/shared_vehicles_screen.dart';
+import 'screens/family/share_vehicle_screen.dart';
+import 'screens/family/shared_wallet_screen.dart';
+import 'screens/family/family_notification_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,9 +58,13 @@ class FuelixApp extends StatelessWidget {
         '/vehicles': (context) => const VehiclesScreen(),
         '/topup': (context) => const TopUpScreen(),
         '/fuel_stations': (context) => const FuelStationsScreen(),
+        '/notifications': (context) => const NotificationsScreen(),
+        '/staff_scanner': (context) => const StaffQrScannerScreen(),
+        '/delete_account': (context) => const DeleteAccountScreen(),
+        '/forgot_password': (context) => const ForgotPasswordScreen(),
       },
-      // Add onGenerateRoute for screens that need arguments
       onGenerateRoute: (settings) {
+        // Fuel Log Screen with arguments
         if (settings.name == '/fuel_log') {
           final args = settings.arguments as Map<String, dynamic>;
           return MaterialPageRoute(
@@ -52,12 +72,111 @@ class FuelixApp extends StatelessWidget {
               user: args['user'],
               vehicles: args['vehicles'],
               walletBalance: args['walletBalance'],
+              selectedVehicleId: args['selectedVehicleId'],
             ),
           );
         }
-        if (settings.name == '/notifications') {
-          return MaterialPageRoute(builder: (_) => const NotificationsScreen());
+
+        // Fuel Pass Sheet (Modal Bottom Sheet)
+        if (settings.name == '/fuel_pass') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => FuelPassSheet(
+              vehicle: args['vehicle'],
+              apiService: args['apiService'],
+              onQuotaUpdated: args['onQuotaUpdated'],
+            ),
+          );
         }
+
+        // Onboarding Screen
+        if (settings.name == '/onboarding') {
+          final args = settings.arguments as UserModel;
+          return MaterialPageRoute(
+            builder: (_) => OnboardingScreen(user: args),
+          );
+        }
+
+        // ==================== FAMILY SHARING SCREENS ====================
+
+        // Family Home Screen
+        if (settings.name == '/family_home') {
+          final args = settings.arguments as UserModel;
+          return MaterialPageRoute(
+            builder: (_) => FamilyHomeScreen(user: args),
+          );
+        }
+
+        // Create Family Screen
+        if (settings.name == '/create_family') {
+          final args = settings.arguments as UserModel;
+          return MaterialPageRoute(
+            builder: (_) => CreateFamilyScreen(user: args),
+          );
+        }
+
+        // Family Members Screen
+        if (settings.name == '/family_members') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => FamilyMembersScreen(
+              user: args['user'],
+              familyInfo: args['familyInfo'],
+              onMemberChanged: args['onMemberChanged'],
+            ),
+          );
+        }
+
+        // Invite Member Screen
+        if (settings.name == '/invite_member') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => InviteMemberScreen(
+              user: args['user'],
+              familyId: args['familyId'],
+            ),
+          );
+        }
+
+        // Shared Vehicles Screen
+        if (settings.name == '/shared_vehicles') {
+          final args = settings.arguments as UserModel;
+          return MaterialPageRoute(
+            builder: (_) => SharedVehiclesScreen(user: args),
+          );
+        }
+
+        // Share Vehicle Screen
+        if (settings.name == '/share_vehicle') {
+          final args = settings.arguments as UserModel;
+          return MaterialPageRoute(
+            builder: (_) => ShareVehicleScreen(user: args),
+          );
+        }
+
+        // Shared Wallet Screen
+        if (settings.name == '/shared_wallet') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => SharedWalletScreen(
+              user: args['user'],
+              familyId: args['familyId'],
+              isOwner: args['isOwner'],
+            ),
+          );
+        }
+
+        // Family Notification Screen
+        if (settings.name == '/family_notifications') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => FamilyNotificationScreen(
+              user: args['user'],
+              familyId: args['familyId'],
+            ),
+          );
+        }
+
         return null;
       },
     );

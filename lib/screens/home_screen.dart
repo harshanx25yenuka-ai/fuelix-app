@@ -6,6 +6,7 @@ import '../models/user_model.dart';
 import '../models/vehicle_model.dart';
 import '../models/topup_model.dart';
 import '../models/fuel_log_model.dart';
+import '../models/family_models.dart';
 import '../services/api_service.dart';
 import '../services/notification_local_service.dart';
 import '../services/tutorial_service.dart';
@@ -48,6 +49,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   bool _isRefreshing = false;
 
+  // Family Sharing
+  FamilyInfo? _familyInfo;
+  bool _hasFamily = false;
+
   // Tutorial keys
   final _keyWelcome = GlobalKey();
   final _keyVehicles = GlobalKey();
@@ -56,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _keyLogHistoryAction = GlobalKey();
   final _keyNotifications = GlobalKey();
   final _keyRefreshButton = GlobalKey();
+  final _keyFamilySharing = GlobalKey();
   bool _showTour = false;
 
   @override
@@ -86,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       print('HomeScreen - Is staff: ${_user?.isStaff}');
       _loadAll();
       _checkHomeTour();
+      _loadFamilyInfo();
     }
   }
 
@@ -115,6 +122,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ]);
 
     setState(() => _isRefreshing = false);
+  }
+
+  Future<void> _loadFamilyInfo() async {
+    if (_user?.id == null) return;
+
+    final result = await _apiService.getFamilyInfo();
+
+    if (result['success'] && mounted) {
+      final info = FamilyInfo.fromJson(result['data']);
+      setState(() {
+        _familyInfo = info;
+        _hasFamily = info.hasFamily;
+      });
+    }
   }
 
   Future<void> _loadVehicles() async {
@@ -289,6 +310,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  void _goToFamilySharing() {
+    if (_hasFamily && _familyInfo != null) {
+      Navigator.pushNamed(context, '/family_home', arguments: _user);
+    } else {
+      Navigator.pushNamed(context, '/create_family', arguments: _user);
+    }
+  }
+
   void _logout() {
     showDialog(
       context: context,
@@ -409,6 +438,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
+
+                    // ==================== FAMILY SHARING CARD ====================
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+                        child: KeyedSubtree(
+                          key: _keyFamilySharing,
+                          child: _FamilySharingCard(
+                            hasFamily: _hasFamily,
+                            familyName: _familyInfo?.familyName,
+                            memberCount: _familyInfo?.members.length ?? 0,
+                            isDark: isDark,
+                            onTap: _goToFamilySharing,
+                          ),
+                        ),
+                      ),
+                    ),
+
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
@@ -453,6 +500,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
+
                     // Recent Fuel Logs - Only show if there are logs
                     if (hasFuelLogs)
                       SliverToBoxAdapter(
@@ -499,6 +547,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           position: TooltipPosition.below,
         ),
         TourStep(
+          targetKey: _keyFamilySharing,
+          title: 'Family Sharing',
+          body:
+              'Create or join a family to share vehicles, wallet, and manage fuel together.',
+          icon: Icons.family_restroom_rounded,
+          gradient: [AppColors.emerald, AppColors.ocean],
+          position: TooltipPosition.below,
+        ),
+        TourStep(
           targetKey: _keyVehicles,
           title: 'My Vehicles',
           body:
@@ -540,6 +597,138 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (mounted) setState(() => _showTour = false);
       },
       child: screen,
+    );
+  }
+}
+
+// ==================== FAMILY SHARING CARD WIDGET ====================
+
+class _FamilySharingCard extends StatelessWidget {
+  final bool hasFamily;
+  final String? familyName;
+  final int memberCount;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _FamilySharingCard({
+    required this.hasFamily,
+    this.familyName,
+    required this.memberCount,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: hasFamily
+              ? LinearGradient(
+                  colors: [
+                    AppColors.emerald.withOpacity(0.9),
+                    AppColors.ocean.withOpacity(0.9),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : LinearGradient(
+                  colors: [
+                    AppColors.emerald.withOpacity(0.15),
+                    AppColors.ocean.withOpacity(0.15),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+          border: Border.all(
+            color: hasFamily
+                ? Colors.transparent
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: hasFamily
+                    ? Colors.white.withOpacity(0.2)
+                    : AppColors.emerald.withOpacity(0.2),
+              ),
+              child: Icon(
+                Icons.family_restroom_rounded,
+                size: 26,
+                color: hasFamily ? Colors.white : AppColors.emerald,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasFamily ? 'Family Sharing' : 'Start Family Sharing',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: hasFamily
+                          ? Colors.white
+                          : (isDark ? AppColors.darkText : AppColors.lightText),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    hasFamily
+                        ? '$familyName • $memberCount member${memberCount != 1 ? 's' : ''}'
+                        : 'Share vehicles and wallet with family',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: hasFamily
+                          ? Colors.white.withOpacity(0.8)
+                          : (isDark
+                                ? AppColors.darkTextSub
+                                : AppColors.lightTextSub),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                color: hasFamily
+                    ? Colors.white.withOpacity(0.2)
+                    : AppColors.emerald.withOpacity(0.15),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    hasFamily ? 'Manage' : 'Create',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: hasFamily ? Colors.white : AppColors.emerald,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 10,
+                    color: hasFamily ? Colors.white : AppColors.emerald,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
