@@ -28,7 +28,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
 
   String _stationName = '';
   String _stationBrand = '';
-  String? _extractedValue;
   bool _hasScanned = false;
 
   bool _isVerifying = false;
@@ -41,7 +40,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
   TextEditingController _litresController = TextEditingController();
   bool _isRefilling = false;
 
-  // Verification steps for legacy QR
   List<VerificationStep> _steps = [];
 
   @override
@@ -60,27 +58,34 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     _steps = [
       VerificationStep(
         id: 'step1',
-        title: 'Fuel Pass Code',
-        subtitle: 'Verifying vehicle passcode',
+        title: 'QR Validation',
+        subtitle: 'Validating QR code signature',
         status: VerificationStatus.pending,
         icon: Icons.qr_code_rounded,
       ),
       VerificationStep(
         id: 'step2',
+        title: 'Fuel Pass Verification',
+        subtitle: 'Verifying vehicle passcode',
+        status: VerificationStatus.pending,
+        icon: Icons.verified_user_rounded,
+      ),
+      VerificationStep(
+        id: 'step3',
         title: 'Quota Check',
         subtitle: 'Checking available fuel quota',
         status: VerificationStatus.pending,
         icon: Icons.local_gas_station_rounded,
       ),
       VerificationStep(
-        id: 'step3',
+        id: 'step4',
         title: 'Wallet Balance',
         subtitle: 'Verifying wallet balance',
         status: VerificationStatus.pending,
         icon: Icons.account_balance_wallet_rounded,
       ),
       VerificationStep(
-        id: 'step4',
+        id: 'step5',
         title: 'Load Data',
         subtitle: 'Loading vehicle information',
         status: VerificationStatus.pending,
@@ -134,8 +139,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     super.dispose();
   }
 
-  // ==================== QR HANDLING ====================
-
   Future<void> _handleBarcode(BarcodeCapture capture) async {
     if (!_isScanning || _isProcessing || _hasScanned || _isVerifying) return;
 
@@ -161,14 +164,14 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     try {
       await HapticFeedback.mediumImpact();
 
-      // Detect QR version
+      // Check QR version and send full QR data to backend
       if (rawValue.startsWith('FUELIX|2.0|')) {
-        // Version 2.0 with dynamic token
-        await _verifyDynamicQr(rawValue);
+        // Version 2.0 - Send full QR data with signature
+        await _verifyQrWithBackend(rawValue);
       } else if (rawValue.startsWith('FUELIX|')) {
-        // Legacy static QR
-        final extractedValue = _extractValue(rawValue);
-        await _showVerificationDialog(extractedValue);
+        // Legacy QR - Extract passcode and send
+        final extractedValue = _extractPasscode(rawValue);
+        await _verifyLegacyQr(extractedValue);
       } else {
         setState(() {
           _errorMessage = 'Invalid QR format';
@@ -183,7 +186,7 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     }
   }
 
-  String _extractValue(String rawValue) {
+  String _extractPasscode(String rawValue) {
     try {
       if (rawValue.startsWith('{') && rawValue.endsWith('}')) {
         final decoded = jsonDecode(rawValue);
@@ -223,51 +226,7 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     }
   }
 
-  // ==================== DYNAMIC QR VERIFICATION (V2) ====================
-
-  Future<void> _verifyDynamicQr(String qrData) async {
-    final result = await _apiService.staffVerifyQrV2(qrData);
-
-    if (result['success'] && mounted) {
-      final vehicle = result['vehicle'];
-      final quota = result['quota'];
-      final wallet = result['wallet'];
-
-      setState(() {
-        _verifiedData = {
-          'vehicleId': vehicle['id'],
-          'userId': vehicle['userId'],
-          'registrationNo': vehicle['registrationNo'],
-          'vehicleType': vehicle['vehicleType'],
-          'make': vehicle['make'],
-          'model': vehicle['model'],
-          'fuelType': vehicle['fuelType'],
-          'tokenId': result['tokenId'],
-          'remainingQuota': quota['remainingQuota'],
-          'quotaLitres': quota['quotaLitres'],
-          'usedLitres': quota['usedLitres'],
-          'balance': wallet['balance'],
-        };
-        _verificationComplete = true;
-        _isProcessing = false;
-      });
-    } else {
-      setState(() {
-        _errorMessage = result['error'] ?? 'Verification failed';
-        _isProcessing = false;
-      });
-      _resetToScan();
-    }
-  }
-
-  // ==================== LEGACY QR VERIFICATION ====================
-
-  Future<void> _showVerificationDialog(String passcode) async {
-    setState(() {
-      _isVerifying = true;
-      _isProcessing = false;
-    });
-
+  Future<void> _verifyQrWithBackend(String qrData) async {
     // Reset steps
     for (int i = 0; i < _steps.length; i++) {
       _steps[i] = _steps[i].copyWith(
@@ -275,6 +234,222 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
         message: null,
       );
     }
+
+    setState(() {
+      _isVerifying = true;
+      _isProcessing = false;
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            title: Row(
+              children: [
+                Icon(
+                  Icons.verified_user_rounded,
+                  color: AppColors.emerald,
+                  size: 28,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Verifying QR Code',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            content: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: _steps
+                    .map((step) => _buildVerificationStepWidget(step))
+                    .toList(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _resetToScan();
+                },
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.ocean,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    // Step 1: QR Validation (signature check)
+    _updateStep(0, VerificationStatus.loading);
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // Send full QR data to backend for validation
+    final result = await _apiService.staffVerifyQrV2(qrData);
+
+    if (!result['success']) {
+      _updateStep(
+        0,
+        VerificationStatus.failed,
+        message: result['error'] ?? 'QR validation failed',
+      );
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog(result['error'] ?? 'QR validation failed');
+      }
+      return;
+    }
+
+    _updateStep(0, VerificationStatus.completed, message: 'Signature verified');
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // Step 2: Fuel Pass Verification
+    _updateStep(1, VerificationStatus.loading);
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    final vehicle = result['vehicle'];
+    if (vehicle == null) {
+      _updateStep(1, VerificationStatus.failed, message: 'Vehicle not found');
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog('Vehicle not found');
+      }
+      return;
+    }
+
+    _updateStep(
+      1,
+      VerificationStatus.completed,
+      message: 'Vehicle: ${vehicle['registrationNo']}',
+    );
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // Step 3: Quota Check
+    _updateStep(2, VerificationStatus.loading);
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    final quota = result['quota'];
+    final remainingQuota = quota['remainingQuota'] as double;
+
+    if (remainingQuota < 1.0) {
+      _updateStep(
+        2,
+        VerificationStatus.failed,
+        message: 'Insufficient quota: ${remainingQuota.toStringAsFixed(1)} L',
+      );
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog(
+          'Insufficient quota available. Remaining: ${remainingQuota.toStringAsFixed(1)} L',
+        );
+      }
+      return;
+    }
+
+    _updateStep(
+      2,
+      VerificationStatus.completed,
+      message: 'Available: ${remainingQuota.toStringAsFixed(1)} L',
+    );
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // Step 4: Wallet Check
+    _updateStep(3, VerificationStatus.loading);
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    final wallet = result['wallet'];
+    final balance = wallet['balance'] as double;
+
+    if (balance < 100.0) {
+      _updateStep(
+        3,
+        VerificationStatus.failed,
+        message: 'Low balance: LKR ${balance.toStringAsFixed(2)}',
+      );
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog(
+          'Low wallet balance. Current: LKR ${balance.toStringAsFixed(2)}',
+        );
+      }
+      return;
+    }
+
+    _updateStep(
+      3,
+      VerificationStatus.completed,
+      message: 'Balance: LKR ${balance.toStringAsFixed(2)}',
+    );
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // Step 5: Load Data
+    _updateStep(4, VerificationStatus.loading);
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    setState(() {
+      _verifiedData = {
+        'vehicleId': vehicle['id'],
+        'userId': vehicle['userId'],
+        'registrationNo': vehicle['registrationNo'],
+        'vehicleType': vehicle['vehicleType'],
+        'make': vehicle['make'],
+        'model': vehicle['model'],
+        'fuelType': vehicle['fuelType'],
+        'tokenId': result['tokenId'],
+        'remainingQuota': remainingQuota,
+        'quotaLitres': quota['quotaLitres'],
+        'usedLitres': quota['usedLitres'],
+        'balance': balance,
+      };
+    });
+
+    _updateStep(4, VerificationStatus.completed, message: 'Ready for refill');
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (mounted) {
+      Navigator.pop(context);
+      setState(() {
+        _verificationComplete = true;
+        _isVerifying = false;
+        _litresInput = '';
+        _litresController.clear();
+      });
+    }
+  }
+
+  Future<void> _verifyLegacyQr(String passcode) async {
+    // Reset steps
+    for (int i = 0; i < _steps.length; i++) {
+      _steps[i] = _steps[i].copyWith(
+        status: VerificationStatus.pending,
+        message: null,
+      );
+    }
+
+    setState(() {
+      _isVerifying = true;
+      _isProcessing = false;
+    });
 
     showDialog(
       context: context,
@@ -332,79 +507,77 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
       ),
     );
 
-    // Perform verification steps
-    bool success = await _performVerification(passcode);
+    // Step 1: QR Validation (skip for legacy)
+    _updateStep(0, VerificationStatus.completed, message: 'Legacy QR format');
+    await Future.delayed(const Duration(milliseconds: 200));
 
-    if (success && mounted) {
-      Navigator.pop(context);
-      setState(() {
-        _verificationComplete = true;
-        _isVerifying = false;
-        _litresInput = '';
-        _litresController.clear();
-      });
-    } else if (mounted) {
-      Navigator.pop(context);
-      _resetToScan();
-    }
-  }
-
-  Future<bool> _performVerification(String passcode) async {
-    // Step 1: Verify passcode
-    _updateStep(0, VerificationStatus.loading);
+    // Step 2: Fuel Pass Verification
+    _updateStep(1, VerificationStatus.loading);
     await Future.delayed(const Duration(milliseconds: 200));
 
     final result = await _apiService.staffVerifyPasscode(passcode);
 
     if (!result['success']) {
       _updateStep(
-        0,
+        1,
         VerificationStatus.failed,
         message: 'Invalid Fuel Pass Code',
       );
       await Future.delayed(const Duration(milliseconds: 1500));
-      return false;
-    }
-
-    _updateStep(0, VerificationStatus.completed);
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    // Step 2: Quota check
-    _updateStep(1, VerificationStatus.loading);
-    await Future.delayed(const Duration(milliseconds: 200));
-
-    if (result.containsKey('step2') && !result['step2']['success']) {
-      _updateStep(
-        1,
-        VerificationStatus.failed,
-        message: result['step2']['message'],
-      );
-      await Future.delayed(const Duration(milliseconds: 1500));
-      return false;
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog('Invalid Fuel Pass Code');
+      }
+      return;
     }
 
     _updateStep(1, VerificationStatus.completed);
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // Step 3: Wallet check
+    // Step 3: Quota Check
     _updateStep(2, VerificationStatus.loading);
     await Future.delayed(const Duration(milliseconds: 200));
 
-    if (result.containsKey('step3') && !result['step3']['success']) {
+    if (result.containsKey('step2') && !result['step2']['success']) {
       _updateStep(
         2,
         VerificationStatus.failed,
-        message: result['step3']['message'],
+        message: result['step2']['message'],
       );
       await Future.delayed(const Duration(milliseconds: 1500));
-      return false;
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog(result['step2']['message']);
+      }
+      return;
     }
 
     _updateStep(2, VerificationStatus.completed);
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // Step 4: Load data
+    // Step 4: Wallet Check
     _updateStep(3, VerificationStatus.loading);
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    if (result.containsKey('step3') && !result['step3']['success']) {
+      _updateStep(
+        3,
+        VerificationStatus.failed,
+        message: result['step3']['message'],
+      );
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog(result['step3']['message']);
+      }
+      return;
+    }
+
+    _updateStep(3, VerificationStatus.completed);
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // Step 5: Load Data
+    _updateStep(4, VerificationStatus.loading);
     await Future.delayed(const Duration(milliseconds: 200));
 
     if (result.containsKey('step4') && result['step4']['success']) {
@@ -422,13 +595,26 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
           'balance': step4Data['balance'],
         };
       });
-      _updateStep(3, VerificationStatus.completed);
+      _updateStep(4, VerificationStatus.completed);
       await Future.delayed(const Duration(milliseconds: 500));
-      return true;
     } else {
-      _updateStep(3, VerificationStatus.failed, message: 'Failed to load data');
+      _updateStep(4, VerificationStatus.failed, message: 'Failed to load data');
       await Future.delayed(const Duration(milliseconds: 1500));
-      return false;
+      if (mounted) {
+        Navigator.pop(context);
+        _showErrorDialog('Failed to load vehicle data');
+      }
+      return;
+    }
+
+    if (mounted) {
+      Navigator.pop(context);
+      setState(() {
+        _verificationComplete = true;
+        _isVerifying = false;
+        _litresInput = '';
+        _litresController.clear();
+      });
     }
   }
 
@@ -514,13 +700,51 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     );
   }
 
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.error_outline, color: AppColors.error, size: 28),
+            const SizedBox(width: 12),
+            Text(
+              'Verification Failed',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        content: Text(message, style: GoogleFonts.inter(fontSize: 14)),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _resetToScan();
+            },
+            child: Text(
+              'Scan Again',
+              style: GoogleFonts.spaceGrotesk(
+                fontWeight: FontWeight.w600,
+                color: AppColors.ocean,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _resetToScan() {
     setState(() {
       _isScanning = true;
       _errorMessage = null;
       _isProcessing = false;
       _hasScanned = false;
-      _extractedValue = null;
       _isVerifying = false;
       _verificationComplete = false;
       _verificationFailed = false;
@@ -555,8 +779,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     });
     _scannerController.switchCamera();
   }
-
-  // ==================== REFILL SCREEN ====================
 
   void _onNumberPadTap(String value) {
     setState(() {
@@ -711,7 +933,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
         stationName: _stationName,
       );
 
-      // Mark token as used if it's a dynamic token
       if (_verifiedData?['tokenId'] != null) {
         final staffData = await _apiService.getStaffData();
         await _apiService.completeRefill(
@@ -773,8 +994,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     );
   }
 
-  // ==================== BUILD ====================
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -813,7 +1032,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
       ),
       body: Column(
         children: [
-          // Station Info Header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             decoration: BoxDecoration(
@@ -891,7 +1109,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
             ),
           ),
 
-          // Vehicle Info Section (shown when verification complete)
           if (_verificationComplete && _verifiedData != null)
             Container(
               padding: const EdgeInsets.all(16),
@@ -984,7 +1201,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
               ),
             ),
 
-          // Main Content - Scanner or Refill Screen
           Expanded(
             child: _verificationComplete && _verifiedData != null
                 ? _buildRefillScreen(isDark)
@@ -1257,8 +1473,6 @@ class _StaffQrScannerScreenState extends State<StaffQrScannerScreen>
     );
   }
 }
-
-// ==================== HELPER CLASSES ====================
 
 class StaffScannerOverlayPainter extends CustomPainter {
   final Rect scanAreaRect;
