@@ -2,25 +2,24 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fuelix_app/widgets/custom_button.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'dart:async';
 import '../theme/app_theme.dart';
 import '../models/vehicle_model.dart';
 import '../models/quota_model.dart';
-import '../database/db_helper.dart';
-import '../services/quota_service.dart';
 import '../services/api_service.dart';
+import '../services/quota_service.dart';
 
 class FuelPassSheet extends StatefulWidget {
   final VehicleModel vehicle;
-  final DbHelper db;
   final ApiService apiService;
   final VoidCallback onQuotaUpdated;
 
   const FuelPassSheet({
     super.key,
     required this.vehicle,
-    required this.db,
     required this.apiService,
     required this.onQuotaUpdated,
   });
@@ -30,21 +29,32 @@ class FuelPassSheet extends StatefulWidget {
 }
 
 class _FuelPassSheetState extends State<FuelPassSheet> {
-  FuelQuotaModel? _quota;
-  bool _loading = true;
+  String? _qrData;
+  String? _tokenId;
+  int _remainingSeconds = 300;
+  int _expiresIn = 300;
+  bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _isValid = true;
+  Timer? _countdownTimer;
+  FuelQuotaModel? _quota;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+    _generateToken();
     _loadQuota();
   }
 
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadQuota() async {
-    if (widget.vehicle.id == null) {
-      setState(() => _loading = false);
-      return;
-    }
+    if (widget.vehicle.id == null) return;
 
     try {
       final result = await widget.apiService.getCurrentQuota(
@@ -52,7 +62,7 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
         widget.vehicle.type,
       );
 
-      if (result['success']) {
+      if (result['success'] && mounted) {
         final data = result['data'];
         final quota = FuelQuotaModel(
           id: data['id'],
@@ -62,172 +72,83 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
           quotaLitres: (data['quotaLitres'] as num).toDouble(),
           usedLitres: (data['usedLitres'] as num).toDouble(),
         );
-        if (mounted) {
-          setState(() {
-            _quota = quota;
-            _loading = false;
-          });
-        }
-      } else {
-        final q = await widget.db.getCurrentWeekQuota(
-          widget.vehicle.id!,
-          widget.vehicle.type,
-        );
-        if (mounted) {
-          setState(() {
-            _quota = q;
-            _loading = false;
-          });
-        }
+        setState(() => _quota = quota);
       }
     } catch (e) {
       print('Error loading quota: $e');
-      final q = await widget.db.getCurrentWeekQuota(
-        widget.vehicle.id!,
-        widget.vehicle.type,
-      );
-      if (mounted) {
-        setState(() {
-          _quota = q;
-          _loading = false;
+    }
+  }
+
+  Future<void> _generateToken() async {
+    if (_isRefreshing) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final result = await widget.apiService.generateDynamicQr(
+      widget.vehicle.id!,
+    );
+
+    if (result['success'] && mounted) {
+      if (_tokenId != null) {
+        await widget.apiService.invalidateToken(_tokenId!);
+      }
+
+      setState(() {
+        _qrData = result['qrData'];
+        _tokenId = result['tokenId'];
+        _expiresIn = result['expiresIn'];
+        _remainingSeconds = result['expiresIn'];
+        _isValid = true;
+        _isLoading = false;
+        _isRefreshing = false;
+      });
+      _startCountdown();
+    } else {
+      setState(() {
+        _errorMessage = result['error'] ?? 'Failed to generate QR';
+        _isLoading = false;
+        _isRefreshing = false;
+      });
+    }
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_remainingSeconds > 0) {
+        setState(() => _remainingSeconds--);
+      } else {
+        timer.cancel();
+        setState(() => _isValid = false);
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) _generateToken();
         });
       }
-    }
+    });
   }
 
-  Future<void> _refreshQuota() async {
+  Future<void> _manualRefresh() async {
+    if (_isRefreshing) return;
     setState(() => _isRefreshing = true);
-
-    try {
-      QuotaService.clearCache();
-
-      final result = await widget.apiService.getCurrentQuota(
-        widget.vehicle.id!,
-        widget.vehicle.type,
-      );
-
-      if (result['success']) {
-        final data = result['data'];
-        final newQuota = FuelQuotaModel(
-          id: data['id'],
-          vehicleId: data['vehicleId'],
-          weekStart: DateTime.parse(data['weekStart']),
-          weekEnd: DateTime.parse(data['weekEnd']),
-          quotaLitres: (data['quotaLitres'] as num).toDouble(),
-          usedLitres: (data['usedLitres'] as num).toDouble(),
-        );
-
-        await widget.db.getCurrentWeekQuota(
-          widget.vehicle.id!,
-          widget.vehicle.type,
-        );
-
-        if (mounted) {
-          setState(() {
-            _quota = newQuota;
-          });
-          widget.onQuotaUpdated();
-        }
-      }
-    } catch (e) {
-      print('Error refreshing quota: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to refresh quota data'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isRefreshing = false);
-      }
-    }
+    await _generateToken();
   }
 
-  String _formatDate(DateTime d) {
-    const m = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${m[d.month - 1]} ${d.day}, ${d.year}';
+  String _formatTime(int seconds) {
+    int minutes = seconds ~/ 60;
+    int remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
-  Color vehicleTypeColor(String type) {
-    switch (type) {
-      case 'Car':
-        return AppColors.ocean;
-      case 'Motorcycle':
-        return AppColors.amber;
-      case 'Van':
-        return AppColors.emerald;
-      case 'Truck':
-        return const Color(0xFFEF4444);
-      case 'Bus':
-        return const Color(0xFF7C3AED);
-      case 'Three-Wheeler':
-        return const Color(0xFFF97316);
-      default:
-        return AppColors.emerald;
-    }
-  }
-
-  IconData vehicleTypeIcon(String type) {
-    switch (type) {
-      case 'Car':
-        return Icons.directions_car_rounded;
-      case 'Motorcycle':
-        return Icons.two_wheeler_rounded;
-      case 'Van':
-        return Icons.airport_shuttle_rounded;
-      case 'Truck':
-        return Icons.local_shipping_rounded;
-      case 'Bus':
-        return Icons.directions_bus_rounded;
-      case 'Three-Wheeler':
-        return Icons.electric_rickshaw_rounded;
-      default:
-        return Icons.directions_car_rounded;
-    }
-  }
-
-  String _generateQRData() {
-    // Format: FUELIX|PASSCODE|REG_NO|MAKE MODEL|YEAR|FUEL_TYPE|VEHICLE_ID|TIMESTAMP
-    final passcode = widget.vehicle.fuelPassCode ?? '';
-    final regNo = widget.vehicle.registrationNo;
-    final vehicleName = '${widget.vehicle.make} ${widget.vehicle.model}';
-    final year = widget.vehicle.year;
-    final fuelType = widget.vehicle.fuelType;
-    final vehicleId = widget.vehicle.id ?? '';
-    final timestamp =
-        widget.vehicle.qrGeneratedAt?.toIso8601String() ??
-        DateTime.now().toIso8601String();
-
-    // Create a comprehensive QR code data string
-    return 'FUELIX|$passcode|$regNo|$vehicleName|$year|$fuelType|$vehicleId|$timestamp';
-  }
+  bool get _isExpiringSoon => _remainingSeconds < 60 && _remainingSeconds > 0;
+  bool get _isExpired => _remainingSeconds <= 0;
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final accent = vehicleTypeColor(widget.vehicle.type);
-
-    // Get the decrypted Fuel Pass Code from the vehicle model
-    final code = widget.vehicle.fuelPassCode ?? '';
-
-    // Generate the QR data using the comprehensive format
-    final qrData = _generateQRData();
+    final accent = _vehicleTypeColor(widget.vehicle.type);
 
     return Container(
       decoration: BoxDecoration(
@@ -252,64 +173,91 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  GestureDetector(
-                    onTap: _refreshQuota,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        color: AppColors.emerald.withOpacity(
-                          isDark ? 0.15 : 0.10,
-                        ),
-                        border: Border.all(
-                          color: AppColors.emerald.withOpacity(0.3),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_isRefreshing)
-                            const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.emerald,
-                              ),
-                            )
-                          else
-                            const Icon(
-                              Icons.refresh_rounded,
-                              size: 14,
-                              color: AppColors.emerald,
-                            ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Refresh',
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.emerald,
-                            ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'FUEL PASS',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: accent,
+                            letterSpacing: 2,
                           ),
-                        ],
-                      ),
+                        ),
+                        Text(
+                          widget.vehicle.displayName,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      color: _isValid
+                          ? (_isExpiringSoon
+                                ? AppColors.amber.withOpacity(0.15)
+                                : AppColors.emerald.withOpacity(0.15))
+                          : AppColors.error.withOpacity(0.15),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isValid
+                              ? (_isExpiringSoon
+                                    ? Icons.timer_outlined
+                                    : Icons.check_circle)
+                              : Icons.error_outline,
+                          size: 14,
+                          color: _isValid
+                              ? (_isExpiringSoon
+                                    ? AppColors.amber
+                                    : AppColors.emerald)
+                              : AppColors.error,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _isValid
+                              ? (_isExpiringSoon ? 'Expiring soon' : 'Active')
+                              : 'Expired',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: _isValid
+                                ? (_isExpiringSoon
+                                      ? AppColors.amber
+                                      : AppColors.emerald)
+                                : AppColors.error,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+
+            const SizedBox(height: 20),
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Container(
                 width: double.infinity,
+                padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(24),
                   gradient: LinearGradient(
@@ -331,145 +279,216 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                 ),
                 child: Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        color: Colors.white.withOpacity(0.2),
+                      ),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: Colors.white.withOpacity(0.2),
+                          Icon(
+                            Icons.timer_outlined,
+                            size: 16,
+                            color: _isExpiringSoon
+                                ? AppColors.amber
+                                : Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Valid for: ${_formatTime(_remainingSeconds)}',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _isExpiringSoon
+                                  ? AppColors.amber
+                                  : Colors.white,
                             ),
-                            child: Icon(
-                              vehicleTypeIcon(widget.vehicle.type),
-                              size: 22,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    _isLoading
+                        ? Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
                               color: Colors.white,
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'FUEL PASS',
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white.withOpacity(0.75),
-                                    letterSpacing: 2,
-                                  ),
-                                ),
-                                Text(
-                                  widget.vehicle.displayName,
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              color: Colors.white.withOpacity(0.15),
-                            ),
-                            child: Text(
-                              'FUELIX',
-                              style: GoogleFonts.spaceGrotesk(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: 2,
+                            child: const Center(
+                              child: CircularProgressIndicator(
+                                color: AppColors.emerald,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 22),
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        color: Colors.white,
-                      ),
-                      child: Column(
-                        children: [
-                          QrImageView(
-                            data: qrData,
-                            version: QrVersions.auto,
-                            size: 175,
-                            eyeStyle: const QrEyeStyle(
-                              eyeShape: QrEyeShape.square,
-                              color: Color(0xFF111827),
-                            ),
-                            dataModuleStyle: const QrDataModuleStyle(
-                              dataModuleShape: QrDataModuleShape.square,
-                              color: Color(0xFF111827),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
-                            ),
+                          )
+                        : _errorMessage != null
+                        ? Container(
+                            width: 200,
+                            height: 200,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              color: const Color(0xFFF3F4F6),
+                              borderRadius: BorderRadius.circular(16),
+                              color: Colors.white,
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
+                                Icon(
+                                  Icons.error_outline,
+                                  size: 48,
+                                  color: AppColors.error,
+                                ),
+                                const SizedBox(height: 8),
                                 Text(
-                                  code.length >= 8
-                                      ? '${code.substring(0, 4)} ${code.substring(4)}'
-                                      : code,
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                    color: const Color(0xFF111827),
-                                    letterSpacing: 4,
+                                  _errorMessage!,
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    color: AppColors.error,
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                GestureDetector(
-                                  onTap: () {
-                                    Clipboard.setData(
-                                      ClipboardData(text: code),
-                                    );
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Code copied!'),
-                                        duration: Duration(seconds: 1),
+                              ],
+                            ),
+                          )
+                        : _qrData != null && _isValid
+                        ? Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              QrImageView(
+                                data: _qrData!,
+                                version: QrVersions.auto,
+                                size: 200,
+                                eyeStyle: const QrEyeStyle(
+                                  eyeShape: QrEyeShape.square,
+                                  color: Color(0xFF111827),
+                                ),
+                                dataModuleStyle: const QrDataModuleStyle(
+                                  dataModuleShape: QrDataModuleShape.square,
+                                  color: Color(0xFF111827),
+                                ),
+                              ),
+                              if (_isExpiringSoon)
+                                Positioned(
+                                  bottom: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: AppColors.amber,
+                                    ),
+                                    child: Text(
+                                      'Expires in ${_remainingSeconds}s',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
                                       ),
-                                    );
-                                  },
-                                  child: const Icon(
-                                    Icons.copy_rounded,
-                                    size: 18,
-                                    color: Color(0xFF6B7280),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          )
+                        : Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: Colors.white,
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.qr_code_scanner,
+                                  size: 48,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'QR Expired',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                GestureDetector(
+                                  onTap: _generateToken,
+                                  child: Text(
+                                    'Tap to refresh',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: AppColors.emerald,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ],
+
+                    const SizedBox(height: 16),
+
+                    if (widget.vehicle.fuelPassCode != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.white.withOpacity(0.15),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.vehicle.fuelPassCode!,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 4,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            GestureDetector(
+                              onTap: () {
+                                Clipboard.setData(
+                                  ClipboardData(
+                                    text: widget.vehicle.fuelPassCode!,
+                                  ),
+                                );
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Code copied!'),
+                                    duration: Duration(seconds: 1),
+                                  ),
+                                );
+                              },
+                              child: Icon(
+                                Icons.copy_rounded,
+                                size: 18,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+
+                    const SizedBox(height: 16),
 
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 16, 22, 22),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Row(
                         children: [
                           Expanded(
@@ -502,38 +521,38 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
 
             const SizedBox(height: 20),
 
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _loading
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(20),
-                        child: CircularProgressIndicator(
-                          color: AppColors.emerald,
-                          strokeWidth: 2,
-                        ),
-                      ),
-                    )
-                  : _quota != null
-                  ? _QuotaCard(
-                      quota: _quota!,
-                      vehicleType: widget.vehicle.type,
-                      isDark: isDark,
-                      onRefresh: _refreshQuota,
-                    )
-                  : const SizedBox.shrink(),
-            ),
+            if (_quota != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: _QuotaCard(
+                  quota: _quota!,
+                  vehicleType: widget.vehicle.type,
+                  isDark: isDark,
+                ),
+              ),
 
             const SizedBox(height: 16),
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: GradientButton(
+                label: _isRefreshing ? 'Generating...' : 'Generate New QR',
+                onPressed: _manualRefresh,
+                isLoading: _isRefreshing,
+                colors: [AppColors.ocean, AppColors.emerald],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               child: _Notice(
-                icon: Icons.info_outline_rounded,
-                color: AppColors.ocean,
+                icon: Icons.security_rounded,
+                color: AppColors.emerald,
                 isDark: isDark,
                 text:
-                    'Show this QR code at fuel stations to authorise refuelling. This pass is unique to this vehicle and cannot be transferred.',
+                    'This QR code expires after 5 minutes OR after first scan. Generate a fresh one if needed.',
               ),
             ),
 
@@ -542,17 +561,54 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 36),
               child: _Notice(
-                icon: Icons.lock_rounded,
-                color: AppColors.amber,
+                icon: Icons.info_outline_rounded,
+                color: AppColors.ocean,
                 isDark: isDark,
                 text:
-                    'Vehicle details are locked. The Fuel Pass code cannot be regenerated.',
+                    'Show this QR code at Fuelix-partnered stations. Staff will scan to verify your fuel pass.',
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  String _formatDate(DateTime d) {
+    const m = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${m[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+  Color _vehicleTypeColor(String type) {
+    switch (type) {
+      case 'Car':
+        return AppColors.ocean;
+      case 'Motorcycle':
+        return AppColors.amber;
+      case 'Van':
+        return AppColors.emerald;
+      case 'Truck':
+        return const Color(0xFFEF4444);
+      case 'Bus':
+        return const Color(0xFF7C3AED);
+      case 'Three-Wheeler':
+        return const Color(0xFFF97316);
+      default:
+        return AppColors.emerald;
+    }
   }
 }
 
@@ -622,69 +678,24 @@ class _Notice extends StatelessWidget {
   );
 }
 
-class _QuotaCard extends StatefulWidget {
+class _QuotaCard extends StatelessWidget {
   final FuelQuotaModel quota;
   final String vehicleType;
   final bool isDark;
-  final VoidCallback onRefresh;
 
   const _QuotaCard({
     required this.quota,
     required this.vehicleType,
     required this.isDark,
-    required this.onRefresh,
   });
 
   @override
-  State<_QuotaCard> createState() => _QuotaCardState();
-}
-
-class _QuotaCardState extends State<_QuotaCard> {
-  late FuelQuotaModel _quota;
-  bool _isUpdating = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _quota = widget.quota;
-    _checkForQuotaUpdate();
-  }
-
-  @override
-  void didUpdateWidget(covariant _QuotaCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.quota.usedLitres != widget.quota.usedLitres ||
-        oldWidget.quota.quotaLitres != widget.quota.quotaLitres) {
-      setState(() {
-        _quota = widget.quota;
-      });
-    }
-  }
-
-  Future<void> _checkForQuotaUpdate() async {
-    final currentLimit = await QuotaService.getQuotaForVehicleType(
-      widget.vehicleType,
-    );
-    if (_quota.quotaLitres != currentLimit && mounted) {
-      setState(() {
-        _quota = _quota.copyWith(quotaLitres: currentLimit);
-        _isUpdating = true;
-      });
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) {
-          setState(() => _isUpdating = false);
-        }
-      });
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final remaining = _quota.remainingLitres;
-    final used = _quota.usedLitres;
-    final total = _quota.quotaLitres;
-    final pct = _quota.usedPercent;
-    final exhausted = _quota.isExhausted;
+    final remaining = quota.remainingLitres;
+    final used = quota.usedLitres;
+    final total = quota.quotaLitres;
+    final pct = quota.usedPercent;
+    final exhausted = quota.isExhausted;
 
     Color gaugeColor;
     if (pct < 0.5) {
@@ -699,11 +710,11 @@ class _QuotaCardState extends State<_QuotaCard> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        color: widget.isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         border: Border.all(
           color: exhausted
               ? AppColors.error.withOpacity(0.4)
-              : (widget.isDark ? AppColors.darkBorder : AppColors.lightBorder),
+              : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
           width: exhausted ? 1.5 : 1,
         ),
       ),
@@ -741,16 +752,16 @@ class _QuotaCardState extends State<_QuotaCard> {
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: widget.isDark
+                        color: isDark
                             ? AppColors.darkText
                             : AppColors.lightText,
                       ),
                     ),
                     Text(
-                      QuotaService.weekLabel(_quota.weekStart),
+                      QuotaService.weekLabel(quota.weekStart),
                       style: GoogleFonts.inter(
                         fontSize: 11,
-                        color: widget.isDark
+                        color: isDark
                             ? AppColors.darkTextMuted
                             : AppColors.lightTextMuted,
                       ),
@@ -758,65 +769,31 @@ class _QuotaCardState extends State<_QuotaCard> {
                   ],
                 ),
               ),
-              if (_isUpdating)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: AppColors.emerald.withOpacity(0.15),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 10,
-                        height: 10,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: AppColors.emerald,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Updating...',
-                        style: GoogleFonts.inter(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.emerald,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: (exhausted ? AppColors.error : AppColors.emerald)
+                      .withOpacity(isDark ? 0.15 : 0.10),
+                  border: Border.all(
                     color: (exhausted ? AppColors.error : AppColors.emerald)
-                        .withOpacity(widget.isDark ? 0.15 : 0.10),
-                    border: Border.all(
-                      color: (exhausted ? AppColors.error : AppColors.emerald)
-                          .withOpacity(0.35),
-                    ),
-                  ),
-                  child: Text(
-                    exhausted
-                        ? 'Exhausted'
-                        : QuotaService.daysRemainingLabel(DateTime.now()),
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: exhausted ? AppColors.error : AppColors.emerald,
-                    ),
+                        .withOpacity(0.35),
                   ),
                 ),
+                child: Text(
+                  exhausted
+                      ? 'Exhausted'
+                      : QuotaService.daysRemainingLabel(DateTime.now()),
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: exhausted ? AppColors.error : AppColors.emerald,
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -826,68 +803,57 @@ class _QuotaCardState extends State<_QuotaCard> {
                 label: 'Remaining',
                 value: '${remaining.toStringAsFixed(1)} L',
                 color: exhausted ? AppColors.error : AppColors.emerald,
-                isDark: widget.isDark,
+                isDark: isDark,
                 large: true,
               ),
-              _vDivider(widget.isDark),
+              _vDivider(isDark),
               _QuotaStat(
                 label: 'Used',
                 value: '${used.toStringAsFixed(1)} L',
                 color: AppColors.amber,
-                isDark: widget.isDark,
+                isDark: isDark,
               ),
-              _vDivider(widget.isDark),
+              _vDivider(isDark),
               _QuotaStat(
                 label: 'Weekly Total',
                 value: '${total.toStringAsFixed(0)} L',
                 color: AppColors.ocean,
-                isDark: widget.isDark,
+                isDark: isDark,
               ),
             ],
           ),
           const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 10,
+              backgroundColor: isDark
+                  ? AppColors.darkSurfaceAlt
+                  : AppColors.lightSurfaceAlt,
+              valueColor: AlwaysStoppedAnimation<Color>(gaugeColor),
+            ),
+          ),
+          const SizedBox(height: 6),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: pct,
-                        minHeight: 10,
-                        backgroundColor: widget.isDark
-                            ? AppColors.darkSurfaceAlt
-                            : AppColors.lightSurfaceAlt,
-                        valueColor: AlwaysStoppedAnimation<Color>(gaugeColor),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '${(pct * 100).toStringAsFixed(0)}% used',
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            color: widget.isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
-                          ),
-                        ),
-                        Text(
-                          'Resets next Monday',
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            color: widget.isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+              Text(
+                '${(pct * 100).toStringAsFixed(0)}% used',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: isDark
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
+                ),
+              ),
+              Text(
+                'Resets next Monday',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: isDark
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
                 ),
               ),
             ],
@@ -898,7 +864,7 @@ class _QuotaCardState extends State<_QuotaCard> {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                color: AppColors.error.withOpacity(widget.isDark ? 0.12 : 0.07),
+                color: AppColors.error.withOpacity(isDark ? 0.12 : 0.07),
                 border: Border.all(color: AppColors.error.withOpacity(0.3)),
               ),
               child: Row(

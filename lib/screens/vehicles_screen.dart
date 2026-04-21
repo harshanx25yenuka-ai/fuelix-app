@@ -72,7 +72,7 @@ class VehiclesScreen extends StatefulWidget {
 class _VehiclesScreenState extends State<VehiclesScreen>
     with SingleTickerProviderStateMixin {
   final _db = DbHelper();
-  final _apiService = ApiService();
+  final ApiService _apiService = ApiService();
   UserModel? _user;
   List<VehicleModel> _vehicles = [];
   bool _loading = true;
@@ -146,7 +146,7 @@ class _VehiclesScreenState extends State<VehiclesScreen>
               fuelType: json['fuelType'],
               engineCC: json['engineCC'] ?? '',
               color: json['color'] ?? '',
-              fuelPassCode: json['fuelPassCode'], // Decrypted code from backend
+              fuelPassCode: json['fuelPassCode'],
               qrGeneratedAt: json['qrGeneratedAt'] != null
                   ? DateTime.tryParse(json['qrGeneratedAt'])
                   : null,
@@ -217,7 +217,6 @@ class _VehiclesScreenState extends State<VehiclesScreen>
       backgroundColor: Colors.transparent,
       builder: (_) => FuelPassSheet(
         vehicle: v,
-        db: _db,
         apiService: _apiService,
         onQuotaUpdated: _refreshVehicles,
       ),
