@@ -2157,6 +2157,35 @@ class ApiService {
     }
   }
 
+  // Check if user has permission to share vehicles
+  Future<Map<String, dynamic>> canShareVehicle() async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'canShareVehicle': false};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/can-share-vehicle'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      return {
+        'success': true,
+        'canShareVehicle': data['canShareVehicle'] ?? false,
+      };
+    } catch (e) {
+      return {'success': false, 'canShareVehicle': false};
+    }
+  }
+
   // Test connection to server
   static Future<bool> testConnection() async {
     try {

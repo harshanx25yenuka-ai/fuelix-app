@@ -28,6 +28,7 @@ import 'screens/family/share_vehicle_screen.dart';
 import 'screens/family/shared_wallet_screen.dart';
 import 'screens/family/family_notification_screen.dart';
 import 'screens/family/pending_invitations_screen.dart';
+import 'screens/family/edit_permissions_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -141,9 +142,12 @@ class FuelixApp extends StatelessWidget {
 
         // Shared Vehicles Screen
         if (settings.name == '/shared_vehicles') {
-          final args = settings.arguments as UserModel;
+          final args = settings.arguments as Map<String, dynamic>;
           return MaterialPageRoute(
-            builder: (_) => SharedVehiclesScreen(user: args),
+            builder: (_) => SharedVehiclesScreen(
+              user: args['user'],
+              showSharedWithMe: args['showSharedWithMe'] ?? true,
+            ),
           );
         }
 
@@ -183,6 +187,18 @@ class FuelixApp extends StatelessWidget {
           final args = settings.arguments as UserModel;
           return MaterialPageRoute(
             builder: (_) => PendingInvitationsScreen(user: args),
+          );
+        }
+
+        // Edit Permissions Screen
+        if (settings.name == '/edit_permissions') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => EditPermissionsScreen(
+              user: args['user'],
+              familyInfo: args['familyInfo'],
+              onPermissionsUpdated: args['onPermissionsUpdated'],
+            ),
           );
         }
 

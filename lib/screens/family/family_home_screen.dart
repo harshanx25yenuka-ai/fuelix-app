@@ -33,6 +33,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
 
   int _sharedVehiclesCount = 0;
   int _sharedByMeCount = 0;
+  bool _canShareVehicle = false;
 
   @override
   void initState() {
@@ -44,6 +45,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _loadFamilyInfo();
     _loadSharedCounts();
+    _checkSharePermission();
     _animController.forward();
   }
 
@@ -72,7 +74,6 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
   }
 
   Future<void> _loadSharedCounts() async {
-    // Get vehicles shared with me
     final sharedWithMeResult = await _apiService.getSharedVehicles();
     if (sharedWithMeResult['success']) {
       final List<dynamic> data = sharedWithMeResult['data'] ?? [];
@@ -81,7 +82,6 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
       });
     }
 
-    // Get vehicles shared by me
     final sharedByMeResult = await _apiService.getVehiclesSharedByMe();
     if (sharedByMeResult['success']) {
       final List<dynamic> data = sharedByMeResult['data'] ?? [];
@@ -91,14 +91,17 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
     }
   }
 
+  Future<void> _checkSharePermission() async {
+    final result = await _apiService.canShareVehicle();
+    setState(() {
+      _canShareVehicle = result['canShareVehicle'] ?? false;
+    });
+  }
+
   Future<void> _refreshData() async {
     await _loadFamilyInfo();
     await _loadSharedCounts();
-  }
-
-  bool get _canShareVehicle {
-    // User can share vehicle only if they have at least one vehicle with fuel pass
-    return _familyInfo?.myPermissions['can_share_vehicle'] == true;
+    await _checkSharePermission();
   }
 
   @override
@@ -438,7 +441,10 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SharedVehiclesScreen(user: widget.user),
+                  builder: (_) => SharedVehiclesScreen(
+                    user: widget.user,
+                    showSharedWithMe: true,
+                  ),
                 ),
               );
             },
@@ -456,7 +462,10 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SharedVehiclesScreen(user: widget.user),
+                  builder: (_) => SharedVehiclesScreen(
+                    user: widget.user,
+                    showSharedWithMe: false,
+                  ),
                 ),
               );
             },
@@ -497,7 +506,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
           title: 'Share Vehicle',
           subtitle: _canShareVehicle
               ? 'Share your vehicles with family'
-              : 'Add a vehicle with Fuel Pass first',
+              : 'You don\'t have permission to share vehicles',
           gradient: [AppColors.emerald, const Color(0xFF7C3AED)],
           isDark: isDark,
           onTap: _canShareVehicle

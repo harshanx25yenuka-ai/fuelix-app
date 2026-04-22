@@ -9,8 +9,13 @@ import '../fuel_pass_sheet.dart';
 
 class SharedVehiclesScreen extends StatefulWidget {
   final UserModel user;
+  final bool showSharedWithMe;
 
-  const SharedVehiclesScreen({super.key, required this.user});
+  const SharedVehiclesScreen({
+    super.key,
+    required this.user,
+    this.showSharedWithMe = true,
+  });
 
   @override
   State<SharedVehiclesScreen> createState() => _SharedVehiclesScreenState();
@@ -45,7 +50,13 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
   Future<void> _loadSharedVehicles() async {
     setState(() => _isLoading = true);
 
-    final result = await _apiService.getSharedVehicles();
+    late Map<String, dynamic> result;
+
+    if (widget.showSharedWithMe) {
+      result = await _apiService.getSharedVehicles();
+    } else {
+      result = await _apiService.getVehiclesSharedByMe();
+    }
 
     if (result['success'] && mounted) {
       final List<dynamic> data = result['data'];
@@ -63,17 +74,16 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
   }
 
   void _viewFuelPass(SharedVehicle vehicle) {
-    // Convert SharedVehicle to VehicleModel for FuelPassSheet
     final vehicleModel = VehicleModel(
       id: vehicle.vehicleId,
-      userId: vehicle.ownerId,
+      userId: widget.showSharedWithMe ? vehicle.ownerId : widget.user.id!,
       type: vehicle.type,
       make: vehicle.make,
       model: vehicle.model,
       year: DateTime.now().year.toString(),
       registrationNo: vehicle.registrationNo,
       fuelType: vehicle.fuelType,
-      fuelPassCode: null, // Will be fetched from API
+      fuelPassCode: null,
     );
 
     showModalBottomSheet(
@@ -86,6 +96,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
         isSharedVehicle: true,
         sharedWithUserId: widget.user.id,
         ownerId: vehicle.ownerId,
+        canRefuel: vehicle.canRefuel,
         onQuotaUpdated: () {},
       ),
     );
@@ -94,6 +105,10 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final title = widget.showSharedWithMe ? 'Shared With Me' : 'Shared By Me';
+    final emptyMessage = widget.showSharedWithMe
+        ? 'No vehicles have been shared with you yet'
+        : 'You haven\'t shared any vehicles yet';
 
     return Scaffold(
       body: Container(
@@ -111,7 +126,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
             opacity: _fadeAnim,
             child: Column(
               children: [
-                _buildAppBar(isDark),
+                _buildAppBar(isDark, title),
                 Expanded(
                   child: _isLoading
                       ? const Center(
@@ -120,7 +135,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
                           ),
                         )
                       : _sharedVehicles.isEmpty
-                      ? _buildEmptyState(isDark)
+                      ? _buildEmptyState(isDark, emptyMessage)
                       : ListView.separated(
                           physics: const BouncingScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
@@ -132,7 +147,9 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
                             return _SharedVehicleCard(
                               vehicle: vehicle,
                               isDark: isDark,
+                              showOwnerInfo: widget.showSharedWithMe,
                               onViewFuelPass: () => _viewFuelPass(vehicle),
+                              canRefuel: vehicle.canRefuel,
                             );
                           },
                         ),
@@ -145,7 +162,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
     );
   }
 
-  Widget _buildAppBar(bool isDark) {
+  Widget _buildAppBar(bool isDark, String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Row(
@@ -174,7 +191,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
           const SizedBox(width: 14),
           Expanded(
             child: Text(
-              'Shared Vehicles',
+              title,
               style: Theme.of(context).textTheme.headlineMedium,
             ),
           ),
@@ -198,7 +215,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
     );
   }
 
-  Widget _buildEmptyState(bool isDark) {
+  Widget _buildEmptyState(bool isDark, String message) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -227,7 +244,9 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
             ),
             const SizedBox(height: 20),
             Text(
-              'No Shared Vehicles',
+              widget.showSharedWithMe
+                  ? 'No Shared Vehicles'
+                  : 'No Vehicles Shared',
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -236,7 +255,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'When someone shares a vehicle with you,\nit will appear here.',
+              message,
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 13,
@@ -253,12 +272,16 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
 class _SharedVehicleCard extends StatelessWidget {
   final SharedVehicle vehicle;
   final bool isDark;
+  final bool showOwnerInfo;
   final VoidCallback onViewFuelPass;
+  final bool canRefuel;
 
   const _SharedVehicleCard({
     required this.vehicle,
     required this.isDark,
+    required this.showOwnerInfo,
     required this.onViewFuelPass,
+    required this.canRefuel,
   });
 
   Color _getFuelColor(String fuelType) {
@@ -365,28 +388,30 @@ class _SharedVehicleCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.person_outline,
-                          size: 12,
-                          color: AppColors.emerald,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Shared by ${vehicle.ownerName}',
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
+                    if (showOwnerInfo) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person_outline,
+                            size: 12,
                             color: AppColors.emerald,
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Owner: ${vehicle.ownerName}',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: AppColors.emerald,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
-              if (vehicle.canRefuel)
+              if (canRefuel)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -429,18 +454,22 @@ class _SharedVehicleCard extends StatelessWidget {
                   icon: Icon(
                     Icons.qr_code_rounded,
                     size: 16,
-                    color: AppColors.emerald,
+                    color: canRefuel ? AppColors.emerald : AppColors.error,
                   ),
                   label: Text(
-                    'View Fuel Pass',
+                    canRefuel ? 'View Fuel Pass' : 'QR Disabled',
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.emerald,
+                      color: canRefuel ? AppColors.emerald : AppColors.error,
                     ),
                   ),
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.emerald.withOpacity(0.5)),
+                    side: BorderSide(
+                      color: canRefuel
+                          ? AppColors.emerald.withOpacity(0.5)
+                          : AppColors.error.withOpacity(0.5),
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -449,6 +478,14 @@ class _SharedVehicleCard extends StatelessWidget {
               ),
             ],
           ),
+          if (!canRefuel)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Owner has disabled refuel permission for this vehicle',
+                style: GoogleFonts.inter(fontSize: 10, color: AppColors.error),
+              ),
+            ),
         ],
       ),
     );
