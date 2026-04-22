@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:fuelix_app/screens/family/invite_member_screen.dart';
-import 'package:fuelix_app/screens/family/share_vehicle_screen.dart';
-import 'package:fuelix_app/widgets/custom_button.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../models/user_model.dart';
 import '../../models/family_models.dart';
 import '../../services/api_service.dart';
-import 'create_family_screen.dart';
+import '../../widgets/custom_button.dart';
 import 'family_members_screen.dart';
 import 'shared_vehicles_screen.dart';
 import 'shared_wallet_screen.dart';
 import 'family_notification_screen.dart';
+import 'invite_member_screen.dart';
+import 'share_vehicle_screen.dart';
+import 'edit_permissions_screen.dart';
 
 class FamilyHomeScreen extends StatefulWidget {
   final UserModel user;
@@ -31,6 +31,9 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
 
+  int _sharedVehiclesCount = 0;
+  int _sharedByMeCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -40,6 +43,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
     );
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _loadFamilyInfo();
+    _loadSharedCounts();
     _animController.forward();
   }
 
@@ -67,15 +71,34 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
     }
   }
 
-  Future<void> _createFamily() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => CreateFamilyScreen(user: widget.user)),
-    );
-
-    if (result == true) {
-      await _loadFamilyInfo();
+  Future<void> _loadSharedCounts() async {
+    // Get vehicles shared with me
+    final sharedWithMeResult = await _apiService.getSharedVehicles();
+    if (sharedWithMeResult['success']) {
+      final List<dynamic> data = sharedWithMeResult['data'] ?? [];
+      setState(() {
+        _sharedVehiclesCount = data.length;
+      });
     }
+
+    // Get vehicles shared by me
+    final sharedByMeResult = await _apiService.getVehiclesSharedByMe();
+    if (sharedByMeResult['success']) {
+      final List<dynamic> data = sharedByMeResult['data'] ?? [];
+      setState(() {
+        _sharedByMeCount = data.length;
+      });
+    }
+  }
+
+  Future<void> _refreshData() async {
+    await _loadFamilyInfo();
+    await _loadSharedCounts();
+  }
+
+  bool get _canShareVehicle {
+    // User can share vehicle only if they have at least one vehicle with fuel pass
+    return _familyInfo?.myPermissions['can_share_vehicle'] == true;
   }
 
   @override
@@ -110,7 +133,23 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
                       ? _buildErrorState(isDark)
                       : _familyInfo == null || !_familyInfo!.hasFamily
                       ? _buildNoFamilyState(isDark)
-                      : _buildFamilyDashboard(isDark),
+                      : RefreshIndicator(
+                          onRefresh: _refreshData,
+                          color: AppColors.emerald,
+                          child: SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                            child: Column(
+                              children: [
+                                _buildFamilyHeader(isDark),
+                                const SizedBox(height: 20),
+                                _buildStatsGrid(isDark),
+                                const SizedBox(height: 20),
+                                _buildActionCards(isDark),
+                              ],
+                            ),
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -153,42 +192,37 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
               style: Theme.of(context).textTheme.headlineMedium,
             ),
           ),
-          if (_familyInfo != null && _familyInfo!.hasFamily)
-            GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FamilyNotificationScreen(
-                      user: widget.user,
-                      familyId: _familyInfo!.familyId!,
-                    ),
-                  ),
-                );
-              },
-              child: Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: isDark
-                      ? AppColors.darkSurfaceAlt
-                      : AppColors.lightSurfaceAlt,
-                  border: Border.all(
-                    color: isDark
-                        ? AppColors.darkBorder
-                        : AppColors.lightBorder,
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => FamilyNotificationScreen(
+                    user: widget.user,
+                    familyId: _familyInfo!.familyId!,
                   ),
                 ),
-                child: Icon(
-                  Icons.notifications_outlined,
-                  size: 18,
-                  color: isDark
-                      ? AppColors.darkTextSub
-                      : AppColors.lightTextSub,
+              );
+            },
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: isDark
+                    ? AppColors.darkSurfaceAlt
+                    : AppColors.lightSurfaceAlt,
+                border: Border.all(
+                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                 ),
               ),
+              child: Icon(
+                Icons.notifications_outlined,
+                size: 18,
+                color: isDark ? AppColors.darkTextSub : AppColors.lightTextSub,
+              ),
             ),
+          ),
         ],
       ),
     );
@@ -226,11 +260,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
             ),
           ),
           const SizedBox(height: 20),
-          GradientButton(
-            label: 'Retry',
-            onPressed: _loadFamilyInfo,
-            height: 45,
-          ),
+          GradientButton(label: 'Retry', onPressed: _refreshData, height: 45),
         ],
       ),
     );
@@ -285,27 +315,20 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
             const SizedBox(height: 32),
             GradientButton(
               label: 'Create Family',
-              onPressed: _createFamily,
+              onPressed: () async {
+                final result = await Navigator.pushNamed(
+                  context,
+                  '/create_family',
+                  arguments: widget.user,
+                );
+                if (result == true) {
+                  await _refreshData();
+                }
+              },
               colors: [AppColors.emerald, AppColors.ocean],
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildFamilyDashboard(bool isDark) {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-      child: Column(
-        children: [
-          _buildFamilyHeader(isDark),
-          const SizedBox(height: 20),
-          _buildStatsGrid(isDark),
-          const SizedBox(height: 20),
-          _buildActionCards(isDark),
-        ],
       ),
     );
   }
@@ -396,7 +419,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
                   builder: (_) => FamilyMembersScreen(
                     user: widget.user,
                     familyInfo: _familyInfo!,
-                    onMemberChanged: _loadFamilyInfo,
+                    onMemberChanged: _refreshData,
                   ),
                 ),
               );
@@ -407,8 +430,8 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
         Expanded(
           child: _StatCard(
             icon: Icons.directions_car_rounded,
-            label: 'Shared Vehicles',
-            value: '0',
+            label: 'Shared With Me',
+            value: '$_sharedVehiclesCount',
             color: AppColors.emerald,
             isDark: isDark,
             onTap: () {
@@ -424,20 +447,16 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
         const SizedBox(width: 12),
         Expanded(
           child: _StatCard(
-            icon: Icons.account_balance_wallet_rounded,
-            label: 'Family Wallet',
-            value: 'LKR',
-            color: const Color(0xFF7C3AED),
+            icon: Icons.share_rounded,
+            label: 'Shared By Me',
+            value: '$_sharedByMeCount',
+            color: AppColors.amber,
             isDark: isDark,
             onTap: () {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SharedWalletScreen(
-                    user: widget.user,
-                    familyId: _familyInfo!.familyId!,
-                    isOwner: _familyInfo!.isOwner,
-                  ),
+                  builder: (_) => SharedVehiclesScreen(user: widget.user),
                 ),
               );
             },
@@ -467,7 +486,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
               ),
             );
             if (result == true) {
-              await _loadFamilyInfo();
+              await _refreshData();
             }
           },
           enabled: _familyInfo!.canInvite,
@@ -476,18 +495,22 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
         _ActionCard(
           icon: Icons.share_rounded,
           title: 'Share Vehicle',
-          subtitle: 'Share your vehicles with family',
+          subtitle: _canShareVehicle
+              ? 'Share your vehicles with family'
+              : 'Add a vehicle with Fuel Pass first',
           gradient: [AppColors.emerald, const Color(0xFF7C3AED)],
           isDark: isDark,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ShareVehicleScreen(user: widget.user),
-              ),
-            );
-          },
-          enabled: true,
+          onTap: _canShareVehicle
+              ? () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ShareVehicleScreen(user: widget.user),
+                    ),
+                  );
+                }
+              : null,
+          enabled: _canShareVehicle,
         ),
         const SizedBox(height: 12),
         _ActionCard(
@@ -510,6 +533,28 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
           },
           enabled: true,
         ),
+        const SizedBox(height: 12),
+        if (_familyInfo!.isOwner)
+          _ActionCard(
+            icon: Icons.admin_panel_settings_rounded,
+            title: 'Manage Permissions',
+            subtitle: 'Control member permissions',
+            gradient: [AppColors.amber, AppColors.ocean],
+            isDark: isDark,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => EditPermissionsScreen(
+                    user: widget.user,
+                    familyInfo: _familyInfo!,
+                    onPermissionsUpdated: _refreshData,
+                  ),
+                ),
+              );
+            },
+            enabled: true,
+          ),
       ],
     );
   }
@@ -580,7 +625,7 @@ class _ActionCard extends StatelessWidget {
   final String subtitle;
   final List<Color> gradient;
   final bool isDark;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final bool enabled;
 
   const _ActionCard({
@@ -589,7 +634,7 @@ class _ActionCard extends StatelessWidget {
     required this.subtitle,
     required this.gradient,
     required this.isDark,
-    required this.onTap,
+    this.onTap,
     this.enabled = true,
   });
 
