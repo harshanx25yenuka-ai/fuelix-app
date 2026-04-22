@@ -81,6 +81,8 @@ class SharedVehicle {
   final String fuelType;
   final int ownerId;
   final String ownerName;
+  final String? sharedWithName;
+  final int? sharedWithUserId;
   final Map<String, bool> permissions;
   final DateTime sharedAt;
 
@@ -93,6 +95,8 @@ class SharedVehicle {
     required this.fuelType,
     required this.ownerId,
     required this.ownerName,
+    this.sharedWithName,
+    this.sharedWithUserId,
     required this.permissions,
     required this.sharedAt,
   });
@@ -111,6 +115,8 @@ class SharedVehicle {
       fuelType: json['fuelType'] ?? 'Petrol',
       ownerId: json['ownerId'],
       ownerName: json['ownerName'] ?? 'Unknown',
+      sharedWithName: json['sharedWithName'],
+      sharedWithUserId: json['sharedWithUserId'],
       permissions: Map<String, bool>.from(json['permissions'] ?? {}),
       sharedAt: DateTime.parse(json['sharedAt']),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fuelix_app/models/vehicle_model.dart';
+import 'package:fuelix_app/widgets/custom_button.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../models/user_model.dart';
@@ -108,7 +109,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
     final title = widget.showSharedWithMe ? 'Shared With Me' : 'Shared By Me';
     final emptyMessage = widget.showSharedWithMe
         ? 'No vehicles have been shared with you yet'
-        : 'You haven\'t shared any vehicles yet';
+        : 'You haven\'t shared any vehicles yet.\nShare a vehicle from the Share Vehicle option.';
 
     return Scaffold(
       body: Container(
@@ -148,6 +149,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
                               vehicle: vehicle,
                               isDark: isDark,
                               showOwnerInfo: widget.showSharedWithMe,
+                              showSharedWithInfo: !widget.showSharedWithMe,
                               onViewFuelPass: () => _viewFuelPass(vehicle),
                               canRefuel: vehicle.canRefuel,
                             );
@@ -262,6 +264,14 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
                 color: isDark ? AppColors.darkTextSub : AppColors.lightTextSub,
               ),
             ),
+            if (!widget.showSharedWithMe) const SizedBox(height: 20),
+            if (!widget.showSharedWithMe)
+              GradientButton(
+                label: 'Share a Vehicle',
+                onPressed: () => Navigator.pop(context),
+                height: 45,
+                colors: [AppColors.emerald, AppColors.ocean],
+              ),
           ],
         ),
       ),
@@ -273,6 +283,7 @@ class _SharedVehicleCard extends StatelessWidget {
   final SharedVehicle vehicle;
   final bool isDark;
   final bool showOwnerInfo;
+  final bool showSharedWithInfo;
   final VoidCallback onViewFuelPass;
   final bool canRefuel;
 
@@ -280,6 +291,7 @@ class _SharedVehicleCard extends StatelessWidget {
     required this.vehicle,
     required this.isDark,
     required this.showOwnerInfo,
+    required this.showSharedWithInfo,
     required this.onViewFuelPass,
     required this.canRefuel,
   });
@@ -408,6 +420,27 @@ class _SharedVehicleCard extends StatelessWidget {
                         ],
                       ),
                     ],
+                    if (showSharedWithInfo &&
+                        vehicle.sharedWithName != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person_add_rounded,
+                            size: 12,
+                            color: AppColors.amber,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Shared with: ${vehicle.sharedWithName}',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: AppColors.amber,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -482,7 +515,9 @@ class _SharedVehicleCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                'Owner has disabled refuel permission for this vehicle',
+                showOwnerInfo
+                    ? 'Owner has disabled refuel permission for this vehicle'
+                    : 'Refuel permission is disabled for this vehicle',
                 style: GoogleFonts.inter(fontSize: 10, color: AppColors.error),
               ),
             ),
