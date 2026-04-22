@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:fuelix_app/models/vehicle_model.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../models/user_model.dart';
 import '../../models/family_models.dart';
 import '../../services/api_service.dart';
+import '../fuel_pass_sheet.dart';
 
 class SharedVehiclesScreen extends StatefulWidget {
   final UserModel user;
@@ -60,6 +62,35 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
     }
   }
 
+  void _viewFuelPass(SharedVehicle vehicle) {
+    // Convert SharedVehicle to VehicleModel for FuelPassSheet
+    final vehicleModel = VehicleModel(
+      id: vehicle.vehicleId,
+      userId: vehicle.ownerId,
+      type: vehicle.type,
+      make: vehicle.make,
+      model: vehicle.model,
+      year: DateTime.now().year.toString(),
+      registrationNo: vehicle.registrationNo,
+      fuelType: vehicle.fuelType,
+      fuelPassCode: null, // Will be fetched from API
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FuelPassSheet(
+        vehicle: vehicleModel,
+        apiService: _apiService,
+        isSharedVehicle: true,
+        sharedWithUserId: widget.user.id,
+        ownerId: vehicle.ownerId,
+        onQuotaUpdated: () {},
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -101,6 +132,7 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
                             return _SharedVehicleCard(
                               vehicle: vehicle,
                               isDark: isDark,
+                              onViewFuelPass: () => _viewFuelPass(vehicle),
                             );
                           },
                         ),
@@ -221,146 +253,13 @@ class _SharedVehiclesScreenState extends State<SharedVehiclesScreen>
 class _SharedVehicleCard extends StatelessWidget {
   final SharedVehicle vehicle;
   final bool isDark;
+  final VoidCallback onViewFuelPass;
 
-  const _SharedVehicleCard({required this.vehicle, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-        border: Border.all(
-          color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 55,
-            height: 55,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              gradient: LinearGradient(
-                colors: [AppColors.emerald, AppColors.ocean],
-              ),
-            ),
-            child: const Icon(
-              Icons.directions_car_rounded,
-              size: 28,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  vehicle.displayName,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? AppColors.darkText : AppColors.lightText,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(6),
-                        color: _getFuelColor(
-                          vehicle.fuelType,
-                        ).withOpacity(0.15),
-                      ),
-                      child: Text(
-                        vehicle.fuelType,
-                        style: GoogleFonts.inter(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: _getFuelColor(vehicle.fuelType),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(6),
-                        color: AppColors.ocean.withOpacity(0.15),
-                      ),
-                      child: Text(
-                        vehicle.type,
-                        style: GoogleFonts.inter(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.ocean,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.person_outline,
-                      size: 12,
-                      color: AppColors.emerald,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Shared by ${vehicle.ownerName}',
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: AppColors.emerald,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (vehicle.canRefuel)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: AppColors.emerald.withOpacity(0.15),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_gas_station_rounded,
-                    size: 10,
-                    color: AppColors.emerald,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Refuel',
-                    style: GoogleFonts.inter(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.emerald,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  const _SharedVehicleCard({
+    required this.vehicle,
+    required this.isDark,
+    required this.onViewFuelPass,
+  });
 
   Color _getFuelColor(String fuelType) {
     switch (fuelType.toLowerCase()) {
@@ -375,5 +274,183 @@ class _SharedVehicleCard extends StatelessWidget {
       default:
         return AppColors.emerald;
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fuelColor = _getFuelColor(vehicle.fuelType);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        border: Border.all(
+          color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 55,
+                height: 55,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: LinearGradient(
+                    colors: [AppColors.emerald, AppColors.ocean],
+                  ),
+                ),
+                child: const Icon(
+                  Icons.directions_car_rounded,
+                  size: 28,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      vehicle.displayName,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(6),
+                            color: fuelColor.withOpacity(0.15),
+                          ),
+                          child: Text(
+                            vehicle.fuelType,
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: fuelColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(6),
+                            color: AppColors.ocean.withOpacity(0.15),
+                          ),
+                          child: Text(
+                            vehicle.type,
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.ocean,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.person_outline,
+                          size: 12,
+                          color: AppColors.emerald,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Shared by ${vehicle.ownerName}',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: AppColors.emerald,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (vehicle.canRefuel)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.emerald.withOpacity(0.15),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.local_gas_station_rounded,
+                        size: 10,
+                        color: AppColors.emerald,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Refuel',
+                        style: GoogleFonts.inter(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.emerald,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onViewFuelPass,
+                  icon: Icon(
+                    Icons.qr_code_rounded,
+                    size: 16,
+                    color: AppColors.emerald,
+                  ),
+                  label: Text(
+                    'View Fuel Pass',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.emerald,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.emerald.withOpacity(0.5)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
