@@ -1,49 +1,39 @@
-// lib/models/family_models.dart
-
 import 'dart:ui';
 
 import 'package:fuelix_app/theme/app_theme.dart';
 
-class FamilyInfo {
-  final bool hasFamily;
-  final int? familyId;
-  final String? familyName;
-  final String? myRole;
-  final List<FamilyMember> members;
-  final Map<String, bool> myPermissions;
+class Family {
+  final int? id;
+  final String familyName;
+  final int createdBy;
+  final DateTime createdAt;
+  final bool isActive;
 
-  FamilyInfo({
-    required this.hasFamily,
-    this.familyId,
-    this.familyName,
-    this.myRole,
-    required this.members,
-    required this.myPermissions,
+  Family({
+    this.id,
+    required this.familyName,
+    required this.createdBy,
+    required this.createdAt,
+    required this.isActive,
   });
 
-  bool get isOwner => myRole == 'OWNER';
-  bool get canInvite => isOwner;
-  bool get canRemoveMembers => isOwner;
-  bool get canTopUp => myPermissions['can_topup'] ?? false;
-  bool get canRefuel => myPermissions['can_refuel'] ?? false;
-
-  factory FamilyInfo.fromJson(Map<String, dynamic> json) {
-    List<FamilyMember> members = [];
-    if (json['members'] != null) {
-      members = (json['members'] as List)
-          .map((m) => FamilyMember.fromJson(m))
-          .toList();
-    }
-
-    return FamilyInfo(
-      hasFamily: json['hasFamily'] ?? false,
-      familyId: json['familyId'],
+  factory Family.fromJson(Map<String, dynamic> json) {
+    return Family(
+      id: json['id'],
       familyName: json['familyName'],
-      myRole: json['myRole'],
-      members: members,
-      myPermissions: Map<String, bool>.from(json['myPermissions'] ?? {}),
+      createdBy: json['createdBy'],
+      createdAt: DateTime.parse(json['createdAt']),
+      isActive: json['isActive'] ?? true,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'familyName': familyName,
+    'createdBy': createdBy,
+    'createdAt': createdAt.toIso8601String(),
+    'isActive': isActive,
+  };
 }
 
 class FamilyMember {
@@ -64,8 +54,11 @@ class FamilyMember {
   });
 
   bool get isOwner => role == 'OWNER';
+  bool get isMember => role == 'MEMBER';
   bool get canTopUp => permissions['can_topup'] ?? false;
   bool get canRefuel => permissions['can_refuel'] ?? false;
+  bool get canViewWallet => permissions['can_view_wallet'] ?? false;
+  bool get canViewQuota => permissions['can_view_quota'] ?? false;
 
   factory FamilyMember.fromJson(Map<String, dynamic> json) {
     return FamilyMember(
@@ -105,6 +98,7 @@ class SharedVehicle {
   });
 
   bool get canRefuel => permissions['can_refuel'] ?? false;
+  bool get canViewQuota => permissions['can_view_quota'] ?? false;
   String get displayName => '$make $model ($registrationNo)';
 
   factory SharedVehicle.fromJson(Map<String, dynamic> json) {
@@ -128,12 +122,14 @@ class SharedWallet {
   final List<SharedWalletTransaction> transactions;
   final bool canTopup;
   final bool canRefuel;
+  final bool canView;
 
   SharedWallet({
     required this.balance,
     required this.transactions,
     required this.canTopup,
     required this.canRefuel,
+    required this.canView,
   });
 
   String get formattedBalance => 'LKR ${balance.toStringAsFixed(2)}';
@@ -151,6 +147,7 @@ class SharedWallet {
       transactions: transactions,
       canTopup: json['canTopup'] ?? false,
       canRefuel: json['canRefuel'] ?? false,
+      canView: json['canView'] ?? true,
     );
   }
 }
@@ -187,6 +184,69 @@ class SharedWalletTransaction {
       reference: json['reference'],
       createdAt: DateTime.parse(json['createdAt']),
       userName: json['userName'] ?? 'Unknown',
+    );
+  }
+}
+
+class FamilyInfo {
+  final bool hasFamily;
+  final int? familyId;
+  final String? familyName;
+  final String? myRole;
+  final List<FamilyMember> members;
+  final Map<String, bool> myPermissions;
+
+  FamilyInfo({
+    required this.hasFamily,
+    this.familyId,
+    this.familyName,
+    this.myRole,
+    required this.members,
+    required this.myPermissions,
+  });
+
+  bool get isOwner => myRole == 'OWNER';
+  bool get canInvite => isOwner;
+  bool get canRemoveMembers => isOwner;
+
+  factory FamilyInfo.fromJson(Map<String, dynamic> json) {
+    List<FamilyMember> members = [];
+    if (json['members'] != null) {
+      members = (json['members'] as List)
+          .map((m) => FamilyMember.fromJson(m))
+          .toList();
+    }
+
+    return FamilyInfo(
+      hasFamily: json['hasFamily'] ?? false,
+      familyId: json['familyId'],
+      familyName: json['familyName'],
+      myRole: json['myRole'],
+      members: members,
+      myPermissions: Map<String, bool>.from(json['myPermissions'] ?? {}),
+    );
+  }
+}
+
+class PendingInvitation {
+  final int familyId;
+  final String familyName;
+  final String invitedBy;
+  final DateTime invitedAt;
+
+  PendingInvitation({
+    required this.familyId,
+    required this.familyName,
+    required this.invitedBy,
+    required this.invitedAt,
+  });
+
+  factory PendingInvitation.fromJson(Map<String, dynamic> json) {
+    return PendingInvitation(
+      familyId: json['familyId'],
+      familyName: json['familyName'],
+      invitedBy: json['invitedBy'],
+      invitedAt: DateTime.parse(json['invitedAt']),
     );
   }
 }

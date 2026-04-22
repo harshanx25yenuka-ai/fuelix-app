@@ -14,6 +14,7 @@ import '../widgets/custom_button.dart';
 import '../widgets/tutorial_overlay.dart';
 import '../screens/notifications_screen.dart';
 import '../screens/fuel_log_history_screen.dart';
+import '../screens/family/pending_invitations_screen.dart';
 import 'home/widgets/top_bar.dart';
 import 'home/widgets/welcome_card.dart';
 import 'home/widgets/stats_row.dart';
@@ -52,6 +53,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Family Sharing
   FamilyInfo? _familyInfo;
   bool _hasFamily = false;
+  bool _hasVehiclePass = false;
+  bool _hasPendingInvitations = false;
+  bool _showFamilySharing = false;
 
   // Tutorial keys
   final _keyWelcome = GlobalKey();
@@ -92,7 +96,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       print('HomeScreen - Is staff: ${_user?.isStaff}');
       _loadAll();
       _checkHomeTour();
-      _loadFamilyInfo();
     }
   }
 
@@ -119,6 +122,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _loadWallet(),
       _loadFuelData(),
       _loadUnreadCount(),
+      _loadFamilyInfo(),
+      _checkFamilySharingConditions(),
     ]);
 
     setState(() => _isRefreshing = false);
@@ -136,6 +141,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _hasFamily = info.hasFamily;
       });
     }
+  }
+
+  Future<void> _checkFamilySharingConditions() async {
+    if (_user?.id == null) return;
+
+    final vehiclePassResult = await _apiService.hasVehiclePass();
+    _hasVehiclePass = vehiclePassResult['hasVehiclePass'] ?? false;
+
+    final invitationsResult = await _apiService.getPendingInvitations();
+    if (invitationsResult['success']) {
+      final List<dynamic> invitations = invitationsResult['data'] ?? [];
+      _hasPendingInvitations = invitations.isNotEmpty;
+    }
+
+    setState(() {
+      _showFamilySharing =
+          _hasVehiclePass || _hasPendingInvitations || _hasFamily;
+    });
   }
 
   Future<void> _loadVehicles() async {
@@ -310,10 +333,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _goToFamilySharing() {
-    if (_hasFamily && _familyInfo != null) {
+  void _goToFamilySharing() async {
+    if (_hasPendingInvitations && !_hasFamily) {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PendingInvitationsScreen(user: _user!),
+        ),
+      );
+      if (result == true) {
+        await _loadAll();
+      }
+    } else if (_hasFamily && _familyInfo != null) {
       Navigator.pushNamed(context, '/family_home', arguments: _user);
-    } else {
+    } else if (_hasVehiclePass && !_hasFamily) {
       Navigator.pushNamed(context, '/create_family', arguments: _user);
     }
   }
@@ -439,22 +472,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     ),
 
-                    // ==================== FAMILY SHARING CARD ====================
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
-                        child: KeyedSubtree(
-                          key: _keyFamilySharing,
-                          child: _FamilySharingCard(
-                            hasFamily: _hasFamily,
-                            familyName: _familyInfo?.familyName,
-                            memberCount: _familyInfo?.members.length ?? 0,
-                            isDark: isDark,
-                            onTap: _goToFamilySharing,
+                    // Family Sharing Card
+                    if (_showFamilySharing)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+                          child: KeyedSubtree(
+                            key: _keyFamilySharing,
+                            child: _FamilySharingCard(
+                              hasFamily: _hasFamily,
+                              familyName: _familyInfo?.familyName,
+                              memberCount: _familyInfo?.members.length ?? 0,
+                              hasPendingInvitations: _hasPendingInvitations,
+                              hasVehiclePass: _hasVehiclePass,
+                              isDark: isDark,
+                              onTap: _goToFamilySharing,
+                            ),
                           ),
                         ),
                       ),
-                    ),
 
                     SliverToBoxAdapter(
                       child: Padding(
@@ -501,7 +537,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     ),
 
-                    // Recent Fuel Logs - Only show if there are logs
+                    // Recent Fuel Logs
                     if (hasFuelLogs)
                       SliverToBoxAdapter(
                         child: Padding(
@@ -607,6 +643,8 @@ class _FamilySharingCard extends StatelessWidget {
   final bool hasFamily;
   final String? familyName;
   final int memberCount;
+  final bool hasPendingInvitations;
+  final bool hasVehiclePass;
   final bool isDark;
   final VoidCallback onTap;
 
@@ -614,37 +652,73 @@ class _FamilySharingCard extends StatelessWidget {
     required this.hasFamily,
     this.familyName,
     required this.memberCount,
+    required this.hasPendingInvitations,
+    required this.hasVehiclePass,
     required this.isDark,
     required this.onTap,
   });
 
+  String get _title {
+    if (hasFamily) return 'Family Sharing';
+    if (hasPendingInvitations) return 'Family Invitations';
+    if (hasVehiclePass) return 'Start Family Sharing';
+    return 'Family Sharing';
+  }
+
+  String get _subtitle {
+    if (hasFamily)
+      return '$familyName • $memberCount member${memberCount != 1 ? 's' : ''}';
+    if (hasPendingInvitations) return 'You have pending family invitations';
+    if (hasVehiclePass) return 'Share vehicles and wallet with family';
+    return 'Create or join a family';
+  }
+
+  String get _buttonText {
+    if (hasFamily) return 'Manage';
+    if (hasPendingInvitations) return 'View';
+    return 'Create';
+  }
+
+  IconData get _icon {
+    if (hasFamily) return Icons.family_restroom_rounded;
+    if (hasPendingInvitations) return Icons.mail_rounded;
+    return Icons.group_add_rounded;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final gradientColors = hasFamily
+        ? [AppColors.emerald.withOpacity(0.9), AppColors.ocean.withOpacity(0.9)]
+        : hasPendingInvitations
+        ? [AppColors.amber.withOpacity(0.9), AppColors.emerald.withOpacity(0.9)]
+        : [
+            AppColors.emerald.withOpacity(0.15),
+            AppColors.ocean.withOpacity(0.15),
+          ];
+
+    final textColor = (hasFamily || hasPendingInvitations)
+        ? Colors.white
+        : null;
+    final subtitleColor = (hasFamily || hasPendingInvitations)
+        ? Colors.white.withOpacity(0.8)
+        : (isDark ? AppColors.darkTextSub : AppColors.lightTextSub);
+    final iconColor = (hasFamily || hasPendingInvitations)
+        ? Colors.white
+        : AppColors.emerald;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          gradient: hasFamily
-              ? LinearGradient(
-                  colors: [
-                    AppColors.emerald.withOpacity(0.9),
-                    AppColors.ocean.withOpacity(0.9),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : LinearGradient(
-                  colors: [
-                    AppColors.emerald.withOpacity(0.15),
-                    AppColors.ocean.withOpacity(0.15),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+          gradient: LinearGradient(
+            colors: gradientColors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           border: Border.all(
-            color: hasFamily
+            color: (hasFamily || hasPendingInvitations)
                 ? Colors.transparent
                 : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
           ),
@@ -656,15 +730,11 @@ class _FamilySharingCard extends StatelessWidget {
               height: 50,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: hasFamily
+                color: (hasFamily || hasPendingInvitations)
                     ? Colors.white.withOpacity(0.2)
                     : AppColors.emerald.withOpacity(0.2),
               ),
-              child: Icon(
-                Icons.family_restroom_rounded,
-                size: 26,
-                color: hasFamily ? Colors.white : AppColors.emerald,
-              ),
+              child: Icon(_icon, size: 26, color: iconColor),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -672,27 +742,21 @@ class _FamilySharingCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    hasFamily ? 'Family Sharing' : 'Start Family Sharing',
+                    _title,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: hasFamily
-                          ? Colors.white
-                          : (isDark ? AppColors.darkText : AppColors.lightText),
+                      color:
+                          textColor ??
+                          (isDark ? AppColors.darkText : AppColors.lightText),
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    hasFamily
-                        ? '$familyName • $memberCount member${memberCount != 1 ? 's' : ''}'
-                        : 'Share vehicles and wallet with family',
+                    _subtitle,
                     style: GoogleFonts.inter(
                       fontSize: 12,
-                      color: hasFamily
-                          ? Colors.white.withOpacity(0.8)
-                          : (isDark
-                                ? AppColors.darkTextSub
-                                : AppColors.lightTextSub),
+                      color: subtitleColor,
                     ),
                   ),
                 ],
@@ -702,7 +766,7 @@ class _FamilySharingCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
-                color: hasFamily
+                color: (hasFamily || hasPendingInvitations)
                     ? Colors.white.withOpacity(0.2)
                     : AppColors.emerald.withOpacity(0.15),
               ),
@@ -710,18 +774,22 @@ class _FamilySharingCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    hasFamily ? 'Manage' : 'Create',
+                    _buttonText,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: hasFamily ? Colors.white : AppColors.emerald,
+                      color: (hasFamily || hasPendingInvitations)
+                          ? Colors.white
+                          : AppColors.emerald,
                     ),
                   ),
                   const SizedBox(width: 4),
                   Icon(
                     Icons.arrow_forward_ios_rounded,
                     size: 10,
-                    color: hasFamily ? Colors.white : AppColors.emerald,
+                    color: (hasFamily || hasPendingInvitations)
+                        ? Colors.white
+                        : AppColors.emerald,
                   ),
                 ],
               ),

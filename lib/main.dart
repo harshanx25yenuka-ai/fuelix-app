@@ -27,6 +27,7 @@ import 'screens/family/shared_vehicles_screen.dart';
 import 'screens/family/share_vehicle_screen.dart';
 import 'screens/family/shared_wallet_screen.dart';
 import 'screens/family/family_notification_screen.dart';
+import 'screens/family/pending_invitations_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -77,7 +78,7 @@ class FuelixApp extends StatelessWidget {
           );
         }
 
-        // Fuel Pass Sheet (Modal Bottom Sheet)
+        // Fuel Pass Sheet
         if (settings.name == '/fuel_pass') {
           final args = settings.arguments as Map<String, dynamic>;
           return MaterialPageRoute(
@@ -174,6 +175,14 @@ class FuelixApp extends StatelessWidget {
               user: args['user'],
               familyId: args['familyId'],
             ),
+          );
+        }
+
+        // Pending Invitations Screen
+        if (settings.name == '/pending_invitations') {
+          final args = settings.arguments as UserModel;
+          return MaterialPageRoute(
+            builder: (_) => PendingInvitationsScreen(user: args),
           );
         }
 

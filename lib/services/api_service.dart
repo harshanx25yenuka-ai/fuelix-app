@@ -1513,7 +1513,6 @@ class ApiService {
 
   // ==================== FAMILY SHARING APIs ====================
 
-  // Remove family member
   Future<Map<String, dynamic>> removeFamilyMember(
     int familyId,
     int memberId,
@@ -1549,7 +1548,6 @@ class ApiService {
     }
   }
 
-  // Get family info
   Future<Map<String, dynamic>> getFamilyInfo() async {
     try {
       final token = await getToken();
@@ -1582,7 +1580,6 @@ class ApiService {
     }
   }
 
-  // Create family
   Future<Map<String, dynamic>> createFamily(String familyName) async {
     try {
       final token = await getToken();
@@ -1621,7 +1618,6 @@ class ApiService {
     }
   }
 
-  // Invite to family
   Future<Map<String, dynamic>> inviteToFamily(
     int familyId,
     String emailOrMobile,
@@ -1661,7 +1657,6 @@ class ApiService {
     }
   }
 
-  // Accept invitation
   Future<Map<String, dynamic>> acceptInvitation(int familyId) async {
     try {
       final token = await getToken();
@@ -1695,7 +1690,71 @@ class ApiService {
     }
   }
 
-  // Share vehicle with family member
+  Future<Map<String, dynamic>> declineInvitation(int familyId) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/decline'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({'familyId': familyId}),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to decline invitation',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> getPendingInvitations() async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/pending-invitations'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'data': data['data']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to get invitations',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: $e'};
+    }
+  }
+
   Future<Map<String, dynamic>> shareVehicle(
     int vehicleId,
     int sharedWithUserId,
@@ -1735,7 +1794,6 @@ class ApiService {
     }
   }
 
-  // Unshare vehicle
   Future<Map<String, dynamic>> unshareVehicle(
     int vehicleId,
     int sharedWithUserId,
@@ -1773,7 +1831,6 @@ class ApiService {
     }
   }
 
-  // Get shared vehicles (vehicles shared with me)
   Future<Map<String, dynamic>> getSharedVehicles() async {
     try {
       final token = await getToken();
@@ -1806,7 +1863,6 @@ class ApiService {
     }
   }
 
-  // Get vehicles shared by me
   Future<Map<String, dynamic>> getVehiclesSharedByMe() async {
     try {
       final token = await getToken();
@@ -1839,7 +1895,6 @@ class ApiService {
     }
   }
 
-  // Top up shared wallet
   Future<Map<String, dynamic>> topUpSharedWallet(
     int familyId,
     double amount,
@@ -1889,7 +1944,6 @@ class ApiService {
     }
   }
 
-  // Get shared wallet details
   Future<Map<String, dynamic>> getSharedWalletDetails(int familyId) async {
     try {
       final token = await getToken();
@@ -1922,7 +1976,6 @@ class ApiService {
     }
   }
 
-  // Check if user can refuel shared vehicle
   Future<Map<String, dynamic>> checkCanRefuelSharedVehicle(
     int vehicleId,
   ) async {
@@ -1958,17 +2011,16 @@ class ApiService {
     }
   }
 
-  // Get family members
-  Future<Map<String, dynamic>> getFamilyMembers(int familyId) async {
+  Future<Map<String, dynamic>> hasVehiclePass() async {
     try {
       final token = await getToken();
       if (token == null) {
-        return {'success': false, 'error': 'Not authenticated'};
+        return {'success': false, 'hasVehiclePass': false};
       }
 
       final response = await http
           .get(
-            Uri.parse('$baseUrl/family/members/$familyId'),
+            Uri.parse('$baseUrl/vehicles/has-vehicle-pass'),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',
@@ -1978,16 +2030,12 @@ class ApiService {
 
       final data = json.decode(response.body);
 
-      if (response.statusCode == 200 && data['success'] == true) {
-        return {'success': true, 'data': data['data']};
-      } else {
-        return {
-          'success': false,
-          'error': data['error'] ?? 'Failed to get family members',
-        };
-      }
+      return {
+        'success': true,
+        'hasVehiclePass': data['hasVehiclePass'] ?? false,
+      };
     } catch (e) {
-      return {'success': false, 'error': 'Network error: $e'};
+      return {'success': false, 'hasVehiclePass': false};
     }
   }
 
