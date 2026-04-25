@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fuelix_app/widgets/custom_button.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'dart:async';
@@ -9,6 +8,7 @@ import '../models/vehicle_model.dart';
 import '../models/quota_model.dart';
 import '../services/api_service.dart';
 import '../services/quota_service.dart';
+import '../widgets/custom_button.dart';
 
 class FuelPassSheet extends StatefulWidget {
   final VehicleModel vehicle;
@@ -95,28 +95,45 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
       _errorMessage = null;
     });
 
-    // For shared vehicles with refuel permission enabled, show QR but no generation
+    // For shared vehicles with refuel permission
     if (widget.isSharedVehicle) {
       if (!widget.canRefuel) {
         setState(() {
           _errorMessage =
-              'You don\'t have permission to view this Fuel Pass. Contact the vehicle owner.';
+              'You don\'t have permission to refuel this vehicle. Contact the vehicle owner.';
           _isLoading = false;
           _isRefreshing = false;
         });
         return;
       }
 
-      // For shared vehicles with permission, we need to get the QR data from owner
-      // Since shared users cannot generate QR, we show a message that QR is not available
-      setState(() {
-        _qrData = null;
-        _isLoading = false;
-        _isRefreshing = false;
-      });
+      // Request token from backend for shared user
+      final result = await widget.apiService.generateSharedQr(
+        widget.vehicle.id!,
+      );
+
+      if (result['success'] && mounted) {
+        setState(() {
+          _qrData = result['qrData'];
+          _tokenId = result['tokenId'];
+          _expiresIn = result['expiresIn'];
+          _remainingSeconds = result['expiresIn'];
+          _isValid = true;
+          _isLoading = false;
+          _isRefreshing = false;
+        });
+        _startCountdown();
+      } else {
+        setState(() {
+          _errorMessage = result['error'] ?? 'Failed to generate QR';
+          _isLoading = false;
+          _isRefreshing = false;
+        });
+      }
       return;
     }
 
+    // For owner
     final result = await widget.apiService.generateDynamicQr(
       widget.vehicle.id!,
     );
@@ -175,10 +192,9 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
   bool get _isExpiringSoon => _remainingSeconds < 60 && _remainingSeconds > 0;
   bool get _isExpired => _remainingSeconds <= 0;
 
-  // Show QR only if: (owner) OR (shared vehicle AND canRefuel permission is true)
   bool get _shouldShowQr {
-    if (!widget.isSharedVehicle) return true; // Owner always sees QR
-    return widget.canRefuel; // Shared user sees QR only if canRefuel is true
+    if (!widget.isSharedVehicle) return true;
+    return widget.canRefuel;
   }
 
   @override
@@ -470,9 +486,7 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      widget.isSharedVehicle
-                                          ? 'You don\'t have permission to view this QR code'
-                                          : 'QR code not available',
+                                      'You don\'t have permission to view this QR code',
                                       textAlign: TextAlign.center,
                                       style: GoogleFonts.inter(
                                         fontSize: 10,
@@ -482,9 +496,7 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                                   ],
                                 ),
                               )
-                            : _qrData != null &&
-                                  _isValid &&
-                                  !widget.isSharedVehicle
+                            : _qrData != null && _isValid
                             ? Stack(
                                 alignment: Alignment.center,
                                 children: [
@@ -526,39 +538,6 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                                       ),
                                     ),
                                 ],
-                              )
-                            : widget.isSharedVehicle && _shouldShowQr
-                            ? Container(
-                                width: 200,
-                                height: 200,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.qr_code_scanner,
-                                      size: 48,
-                                      color: Colors.grey,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'QR Code Available to Owner Only',
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Contact vehicle owner for refuel',
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 10,
-                                        color: AppColors.ocean,
-                                      ),
-                                    ),
-                                  ],
-                                ),
                               )
                             : Container(
                                 width: 200,
@@ -715,7 +694,7 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                 isDark: isDark,
                 text: widget.isSharedVehicle
                     ? (widget.canRefuel
-                          ? 'You can view the fuel quota. Contact the owner for QR code to refuel.'
+                          ? 'QR code generated successfully. Valid for 5 minutes or single use.'
                           : 'You don\'t have permission to refuel this vehicle. Contact the owner to enable permission.')
                     : 'This QR code expires after 5 minutes OR after first scan. Generate a fresh one if needed.',
               ),
@@ -730,7 +709,7 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                 color: AppColors.ocean,
                 isDark: isDark,
                 text: widget.isSharedVehicle
-                    ? 'This vehicle is shared with you. You can view quota but cannot generate QR code.'
+                    ? 'This QR code was generated specifically for you. Show it at the fuel station to refuel.'
                     : 'Show this QR code at Fuelix-partnered stations. Staff will scan to verify your fuel pass.',
               ),
             ),
