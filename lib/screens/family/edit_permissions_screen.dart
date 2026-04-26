@@ -27,10 +27,10 @@ class _EditPermissionsScreenState extends State<EditPermissionsScreen>
   final ApiService _apiService = ApiService();
   List<FamilyMember> _members = [];
   bool _isLoading = true;
+  bool _isSaving = false;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
 
-  // Permission configurations
   final Map<String, Map<String, bool>> _tempPermissions = {};
 
   @override
@@ -54,7 +54,6 @@ class _EditPermissionsScreenState extends State<EditPermissionsScreen>
   Future<void> _loadMembers() async {
     setState(() => _isLoading = true);
 
-    // Get fresh member list
     final result = await _apiService.getFamilyMembers(
       widget.familyInfo.familyId!,
     );
@@ -64,7 +63,6 @@ class _EditPermissionsScreenState extends State<EditPermissionsScreen>
       setState(() {
         _members = data.map((json) => FamilyMember.fromJson(json)).toList();
 
-        // Initialize temp permissions
         for (var member in _members) {
           if (!member.isOwner) {
             _tempPermissions[member.userId.toString()] = {
@@ -89,7 +87,7 @@ class _EditPermissionsScreenState extends State<EditPermissionsScreen>
     final permissions = _tempPermissions[memberId.toString()];
     if (permissions == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() => _isSaving = true);
 
     final result = await _apiService.updateMemberPermissions(
       widget.familyInfo.familyId!,
@@ -98,6 +96,8 @@ class _EditPermissionsScreenState extends State<EditPermissionsScreen>
     );
 
     if (!mounted) return;
+
+    setState(() => _isSaving = false);
 
     if (result['success']) {
       showAppSnackbar(
@@ -113,7 +113,6 @@ class _EditPermissionsScreenState extends State<EditPermissionsScreen>
         message: result['error'] ?? 'Failed to update permissions',
         isError: true,
       );
-      setState(() => _isLoading = false);
     }
   }
 
@@ -163,6 +162,7 @@ class _EditPermissionsScreenState extends State<EditPermissionsScreen>
                                   _tempPermissions[member.userId.toString()] ??
                                   {},
                               isDark: isDark,
+                              isSaving: _isSaving,
                               onPermissionChanged: (String key, bool value) {
                                 setState(() {
                                   _tempPermissions[member.userId
@@ -274,6 +274,7 @@ class _PermissionCard extends StatelessWidget {
   final FamilyMember member;
   final Map<String, bool> permissions;
   final bool isDark;
+  final bool isSaving;
   final Function(String, bool) onPermissionChanged;
   final VoidCallback onSave;
 
@@ -281,6 +282,7 @@ class _PermissionCard extends StatelessWidget {
     required this.member,
     required this.permissions,
     required this.isDark,
+    required this.isSaving,
     required this.onPermissionChanged,
     required this.onSave,
   });
@@ -299,6 +301,7 @@ class _PermissionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Member Info Header
           Row(
             children: [
               Container(
@@ -354,16 +357,21 @@ class _PermissionCard extends StatelessWidget {
           Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
           const SizedBox(height: 12),
 
-          // Permission Toggles
+          // Refuel Vehicles Permission (Main permission for QR code)
           _PermissionTile(
             title: 'Refuel Vehicles',
-            description: 'Can refuel shared vehicles using family wallet',
+            description:
+                'Can refuel shared vehicles and generate QR codes. When disabled, user will see "Contact owner" message.',
             value: permissions['can_refuel'] ?? false,
             onChanged: (value) => onPermissionChanged('can_refuel', value),
             isDark: isDark,
             icon: Icons.local_gas_station_rounded,
+            isHighlighted: true,
           ),
+
           const SizedBox(height: 8),
+
+          // Top Up Wallet Permission
           _PermissionTile(
             title: 'Top Up Wallet',
             description: 'Can add money to family wallet',
@@ -371,8 +379,11 @@ class _PermissionCard extends StatelessWidget {
             onChanged: (value) => onPermissionChanged('can_topup', value),
             isDark: isDark,
             icon: Icons.account_balance_wallet_rounded,
+            isHighlighted: false,
           ),
           const SizedBox(height: 8),
+
+          // View Wallet Permission
           _PermissionTile(
             title: 'View Wallet',
             description: 'Can view family wallet balance and transactions',
@@ -380,23 +391,76 @@ class _PermissionCard extends StatelessWidget {
             onChanged: (value) => onPermissionChanged('can_view_wallet', value),
             isDark: isDark,
             icon: Icons.visibility_rounded,
+            isHighlighted: false,
           ),
           const SizedBox(height: 8),
+
+          // Share Vehicles Permission
           _PermissionTile(
             title: 'Share Vehicles',
-            description: 'Can share their own vehicles with family',
+            description: 'Can share their own vehicles with family members',
             value: permissions['can_share_vehicle'] ?? false,
             onChanged: (value) =>
                 onPermissionChanged('can_share_vehicle', value),
             isDark: isDark,
             icon: Icons.share_rounded,
+            isHighlighted: false,
           ),
 
           const SizedBox(height: 16),
+
+          // Info note about Refuel permission
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: (permissions['can_refuel'] ?? false)
+                  ? AppColors.emerald.withOpacity(isDark ? 0.1 : 0.08)
+                  : AppColors.error.withOpacity(isDark ? 0.1 : 0.08),
+              border: Border.all(
+                color: (permissions['can_refuel'] ?? false)
+                    ? AppColors.emerald.withOpacity(0.3)
+                    : AppColors.error.withOpacity(0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  (permissions['can_refuel'] ?? false)
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.lock_outline_rounded,
+                  size: 18,
+                  color: (permissions['can_refuel'] ?? false)
+                      ? AppColors.emerald
+                      : AppColors.error,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    (permissions['can_refuel'] ?? false)
+                        ? '✓ Member can generate QR codes and refuel shared vehicles'
+                        : '🔒 Member cannot refuel. They will see "Contact vehicle owner" message when trying to refuel.',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: (permissions['can_refuel'] ?? false)
+                          ? AppColors.emerald
+                          : AppColors.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Save Button
           GradientButton(
-            label: 'Save Permissions',
+            label: isSaving ? 'Saving...' : 'Save Permissions',
             onPressed: onSave,
-            height: 45,
+            isLoading: isSaving,
+            height: 48,
             colors: [AppColors.emerald, AppColors.ocean],
           ),
         ],
@@ -412,6 +476,7 @@ class _PermissionTile extends StatelessWidget {
   final ValueChanged<bool> onChanged;
   final bool isDark;
   final IconData icon;
+  final bool isHighlighted;
 
   const _PermissionTile({
     required this.title,
@@ -420,53 +485,117 @@ class _PermissionTile extends StatelessWidget {
     required this.onChanged,
     required this.isDark,
     required this.icon,
+    this.isHighlighted = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: AppColors.emerald.withOpacity(0.15),
+    final accentColor = isHighlighted
+        ? (value ? AppColors.emerald : AppColors.error)
+        : AppColors.ocean;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: isHighlighted && value
+            ? accentColor.withOpacity(isDark ? 0.1 : 0.05)
+            : Colors.transparent,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: accentColor.withOpacity(0.15),
+            ),
+            child: Icon(icon, size: 18, color: accentColor),
           ),
-          child: Icon(icon, size: 16, color: AppColors.emerald),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? AppColors.darkText : AppColors.lightText,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                    ),
+                    if (isHighlighted && value)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          color: AppColors.emerald.withOpacity(0.2),
+                        ),
+                        child: Text(
+                          'QR Visible',
+                          style: GoogleFonts.inter(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.emerald,
+                          ),
+                        ),
+                      ),
+                    if (isHighlighted && !value)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          color: AppColors.error.withOpacity(0.2),
+                        ),
+                        child: Text(
+                          'QR Hidden',
+                          style: GoogleFonts.inter(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              ),
-              Text(
-                description,
-                style: GoogleFonts.inter(
-                  fontSize: 10,
-                  color: isDark
-                      ? AppColors.darkTextMuted
-                      : AppColors.lightTextMuted,
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    color: isDark
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        Switch(
-          value: value,
-          onChanged: onChanged,
-          activeColor: AppColors.emerald,
-        ),
-      ],
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: accentColor,
+            inactiveThumbColor: isDark
+                ? AppColors.darkTextMuted
+                : AppColors.lightTextMuted,
+          ),
+        ],
+      ),
     );
   }
 }

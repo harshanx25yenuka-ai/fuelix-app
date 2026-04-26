@@ -216,6 +216,49 @@ class ApiService {
     }
   }
 
+  // Check if shared user has refuel permission for a vehicle
+  Future<Map<String, dynamic>> checkSharedVehiclePermission(
+    int vehicleId,
+  ) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {
+          'hasPermission': false,
+          'isShared': false,
+          'error': 'Not authenticated',
+        };
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/vehicles/shared-vehicle-permission/$vehicleId'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+      print('Permission check response: $data');
+
+      return {
+        'hasPermission': data['hasPermission'] ?? false,
+        'isShared': data['isShared'] ?? false,
+        'ownerId': data['ownerId'],
+        'message': data['message'],
+      };
+    } catch (e) {
+      print('Permission check error: $e');
+      return {
+        'hasPermission': false,
+        'isShared': false,
+        'error': 'Network error: $e',
+      };
+    }
+  }
+
   // Staff verify QR code (Version 2 with dynamic token)
   Future<Map<String, dynamic>> staffVerifyQrV2(String qrData) async {
     try {

@@ -59,6 +59,7 @@ class FamilyMember {
   bool get canRefuel => permissions['can_refuel'] ?? false;
   bool get canViewWallet => permissions['can_view_wallet'] ?? false;
   bool get canViewQuota => permissions['can_view_quota'] ?? false;
+  bool get canShareVehicle => permissions['can_share_vehicle'] ?? false;
 
   factory FamilyMember.fromJson(Map<String, dynamic> json) {
     return FamilyMember(
@@ -85,6 +86,7 @@ class SharedVehicle {
   final int? sharedWithUserId;
   final Map<String, bool> permissions;
   final DateTime sharedAt;
+  final bool canRefuel;
 
   SharedVehicle({
     required this.vehicleId,
@@ -99,13 +101,21 @@ class SharedVehicle {
     this.sharedWithUserId,
     required this.permissions,
     required this.sharedAt,
+    required this.canRefuel,
   });
 
-  bool get canRefuel => permissions['can_refuel'] ?? false;
   bool get canViewQuota => permissions['can_view_quota'] ?? false;
   String get displayName => '$make $model ($registrationNo)';
 
   factory SharedVehicle.fromJson(Map<String, dynamic> json) {
+    // Parse permissions safely
+    Map<String, bool> permissions = {};
+    if (json['permissions'] != null) {
+      if (json['permissions'] is Map) {
+        permissions = Map<String, bool>.from(json['permissions']);
+      }
+    }
+
     return SharedVehicle(
       vehicleId: json['vehicleId'],
       registrationNo: json['registrationNo'],
@@ -117,8 +127,9 @@ class SharedVehicle {
       ownerName: json['ownerName'] ?? 'Unknown',
       sharedWithName: json['sharedWithName'],
       sharedWithUserId: json['sharedWithUserId'],
-      permissions: Map<String, bool>.from(json['permissions'] ?? {}),
+      permissions: permissions,
       sharedAt: DateTime.parse(json['sharedAt']),
+      canRefuel: json['canRefuel'] ?? permissions['can_refuel'] ?? false,
     );
   }
 }

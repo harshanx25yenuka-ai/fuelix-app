@@ -17,7 +17,7 @@ class FuelPassSheet extends StatefulWidget {
   final bool isSharedVehicle;
   final int? sharedWithUserId;
   final int? ownerId;
-  final bool canRefuel;
+  final bool canRefuel; // This comes from parent (SharedVehicle.canRefuel)
 
   const FuelPassSheet({
     super.key,
@@ -47,18 +47,53 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
   String? _errorMessage;
   bool _isOwner = true;
 
+  // Permission state from backend
+  bool _hasPermission = false;
+  bool _isShared = false;
+  bool _permissionChecked = false;
+
   @override
   void initState() {
     super.initState();
     _isOwner = !widget.isSharedVehicle;
-    _generateToken();
-    _loadQuota();
+    _checkPermissionAndLoad();
   }
 
   @override
   void dispose() {
     _countdownTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _checkPermissionAndLoad() async {
+    setState(() {
+      _isLoading = true;
+      _permissionChecked = false;
+    });
+
+    // For shared vehicles, check permission from backend first
+    if (widget.isSharedVehicle) {
+      final permissionResult = await widget.apiService
+          .checkSharedVehiclePermission(widget.vehicle.id!);
+
+      setState(() {
+        _hasPermission = permissionResult['hasPermission'] ?? false;
+        _isShared = permissionResult['isShared'] ?? false;
+        _permissionChecked = true;
+      });
+
+      if (!_hasPermission) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'no_permission';
+        });
+        return;
+      }
+    }
+
+    // Load quota and generate token
+    await _loadQuota();
+    await _generateToken();
   }
 
   Future<void> _loadQuota() async {
@@ -95,12 +130,15 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
       _errorMessage = null;
     });
 
-    // For shared vehicles with refuel permission
+    // For shared vehicles - check permission again before generating
     if (widget.isSharedVehicle) {
-      if (!widget.canRefuel) {
+      // Double check permission from backend (security)
+      final permissionResult = await widget.apiService
+          .checkSharedVehiclePermission(widget.vehicle.id!);
+
+      if (!permissionResult['hasPermission']) {
         setState(() {
-          _errorMessage =
-              'You don\'t have permission to refuel this vehicle. Contact the vehicle owner.';
+          _errorMessage = 'no_permission';
           _isLoading = false;
           _isRefreshing = false;
         });
@@ -192,15 +230,25 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
   bool get _isExpiringSoon => _remainingSeconds < 60 && _remainingSeconds > 0;
   bool get _isExpired => _remainingSeconds <= 0;
 
-  bool get _shouldShowQr {
-    if (!widget.isSharedVehicle) return true;
-    return widget.canRefuel;
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = _vehicleTypeColor(widget.vehicle.type);
+
+    // Determine what to show
+    final bool showNoPermission =
+        widget.isSharedVehicle && _permissionChecked && !_hasPermission;
+    final bool showLoading = _isLoading && !showNoPermission;
+    final bool showQr =
+        (!widget.isSharedVehicle) ||
+        (widget.isSharedVehicle &&
+            _hasPermission &&
+            _qrData != null &&
+            _isValid);
+    final bool showError =
+        _errorMessage != null &&
+        _errorMessage != 'no_permission' &&
+        !showNoPermission;
 
     return Container(
       decoration: BoxDecoration(
@@ -252,18 +300,18 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                                 ),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(4),
-                                  color: widget.canRefuel
+                                  color: _hasPermission
                                       ? AppColors.emerald.withOpacity(0.2)
                                       : AppColors.error.withOpacity(0.2),
                                 ),
                                 child: Text(
-                                  widget.canRefuel
+                                  _hasPermission
                                       ? 'Refuel Allowed'
                                       : 'Refuel Disabled',
                                   style: GoogleFonts.inter(
                                     fontSize: 8,
                                     fontWeight: FontWeight.w600,
-                                    color: widget.canRefuel
+                                    color: _hasPermission
                                         ? AppColors.emerald
                                         : AppColors.error,
                                   ),
@@ -284,12 +332,12 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                         ),
                         if (widget.isSharedVehicle)
                           Text(
-                            widget.canRefuel
+                            _hasPermission
                                 ? 'You can refuel this vehicle'
                                 : 'You cannot refuel this vehicle',
                             style: GoogleFonts.inter(
                               fontSize: 11,
-                              color: widget.canRefuel
+                              color: _hasPermission
                                   ? AppColors.emerald
                                   : AppColors.error,
                             ),
@@ -428,7 +476,7 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
-                        child: _isLoading
+                        child: showLoading
                             ? Container(
                                 width: 200,
                                 height: 200,
@@ -438,65 +486,11 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                                   ),
                                 ),
                               )
-                            : _errorMessage != null
-                            ? Container(
-                                width: 200,
-                                height: 200,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.error_outline,
-                                      size: 48,
-                                      color: AppColors.error,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      _errorMessage!,
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        color: AppColors.error,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : !_shouldShowQr
-                            ? Container(
-                                width: 200,
-                                height: 200,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.qr_code_scanner,
-                                      size: 48,
-                                      color: Colors.grey,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'QR Code Disabled',
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'You don\'t have permission to view this QR code',
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 10,
-                                        color: AppColors.error,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : _qrData != null && _isValid
+                            : showNoPermission
+                            ? _buildNoPermissionState(isDark)
+                            : showError
+                            ? _buildErrorState(isDark)
+                            : showQr
                             ? Stack(
                                 alignment: Alignment.center,
                                 children: [
@@ -693,9 +687,9 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                 color: AppColors.emerald,
                 isDark: isDark,
                 text: widget.isSharedVehicle
-                    ? (widget.canRefuel
+                    ? (_hasPermission
                           ? 'QR code generated successfully. Valid for 5 minutes or single use.'
-                          : 'You don\'t have permission to refuel this vehicle. Contact the owner to enable permission.')
+                          : 'You don\'t have permission to refuel this vehicle. Contact the vehicle owner to enable permission.')
                     : 'This QR code expires after 5 minutes OR after first scan. Generate a fresh one if needed.',
               ),
             ),
@@ -709,12 +703,74 @@ class _FuelPassSheetState extends State<FuelPassSheet> {
                 color: AppColors.ocean,
                 isDark: isDark,
                 text: widget.isSharedVehicle
-                    ? 'This QR code was generated specifically for you. Show it at the fuel station to refuel.'
+                    ? (_hasPermission
+                          ? 'This QR code was generated specifically for you. Show it at the fuel station to refuel.'
+                          : 'Contact the vehicle owner to enable refuel permission for this vehicle.')
                     : 'Show this QR code at Fuelix-partnered stations. Staff will scan to verify your fuel pass.',
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildNoPermissionState(bool isDark) {
+    return Container(
+      width: 200,
+      height: 200,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.error.withOpacity(0.15),
+            ),
+            child: Icon(
+              Icons.lock_outline_rounded,
+              size: 30,
+              color: AppColors.error,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Refuel Permission Disabled',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.error,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Contact the vehicle owner\nto enable refuel permission',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 10, color: AppColors.error),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(bool isDark) {
+    return Container(
+      width: 200,
+      height: 200,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, size: 48, color: AppColors.error),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage!,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 12, color: AppColors.error),
+          ),
+        ],
       ),
     );
   }
