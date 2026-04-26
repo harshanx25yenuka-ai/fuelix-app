@@ -27,8 +27,6 @@ class ApiService {
     String password,
   ) async {
     try {
-      print('Authenticating staff: $nic');
-
       final response = await http
           .post(
             Uri.parse('$baseUrl/staff/auth'),
@@ -36,9 +34,6 @@ class ApiService {
             body: json.encode({'nic': nic, 'password': password}),
           )
           .timeout(const Duration(seconds: 30));
-
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
 
       if (response.body.isEmpty) {
         return {'success': false, 'error': 'Empty response from server'};
@@ -68,7 +63,6 @@ class ApiService {
         };
       }
     } catch (e) {
-      print('Authentication error: $e');
       return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
@@ -129,12 +123,10 @@ class ApiService {
     await prefs.remove('station_brand');
     await prefs.remove('staff_name');
     await clearToken();
-    print('All staff data cleared');
   }
 
   // ==================== DYNAMIC QR TOKEN APIs ====================
 
-  // Generate dynamic QR token for OWNER
   Future<Map<String, dynamic>> generateDynamicQr(int vehicleId) async {
     try {
       final token = await getToken();
@@ -170,12 +162,10 @@ class ApiService {
         };
       }
     } catch (e) {
-      print('Generate dynamic QR error: $e');
       return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
-  // Generate dynamic QR token for SHARED USER
   Future<Map<String, dynamic>> generateSharedQr(int vehicleId) async {
     try {
       final token = await getToken();
@@ -211,12 +201,10 @@ class ApiService {
         };
       }
     } catch (e) {
-      print('Generate shared QR error: $e');
       return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
-  // Check if shared user has refuel permission for a vehicle
   Future<Map<String, dynamic>> checkSharedVehiclePermission(
     int vehicleId,
   ) async {
@@ -241,7 +229,6 @@ class ApiService {
           .timeout(const Duration(seconds: 30));
 
       final data = json.decode(response.body);
-      print('Permission check response: $data');
 
       return {
         'hasPermission': data['hasPermission'] ?? false,
@@ -250,7 +237,6 @@ class ApiService {
         'message': data['message'],
       };
     } catch (e) {
-      print('Permission check error: $e');
       return {
         'hasPermission': false,
         'isShared': false,
@@ -259,7 +245,6 @@ class ApiService {
     }
   }
 
-  // Staff verify QR code (Version 2 with dynamic token)
   Future<Map<String, dynamic>> staffVerifyQrV2(String qrData) async {
     try {
       final token = await getToken();
@@ -279,15 +264,12 @@ class ApiService {
           .timeout(const Duration(seconds: 30));
 
       final data = json.decode(response.body);
-      print('Staff verify V2 response: $data');
       return data;
     } catch (e) {
-      print('Staff verify V2 error: $e');
       return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
-  // Complete fuel refill and mark token as used
   Future<Map<String, dynamic>> completeRefill({
     required String tokenId,
     required int staffId,
@@ -317,15 +299,12 @@ class ApiService {
           .timeout(const Duration(seconds: 30));
 
       final data = json.decode(response.body);
-      print('Complete refill response: $data');
       return data;
     } catch (e) {
-      print('Complete refill error: $e');
       return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
-  // Invalidate old token
   Future<Map<String, dynamic>> invalidateToken(String tokenId) async {
     try {
       final token = await getToken();
@@ -346,7 +325,6 @@ class ApiService {
       final data = json.decode(response.body);
       return data;
     } catch (e) {
-      print('Invalidate token error: $e');
       return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
@@ -469,7 +447,6 @@ class ApiService {
 
       if (response.statusCode == 200) {
         await saveToken(data['token']);
-        print('Login response - Role: ${data['role']}');
         return {'success': true, 'data': data};
       } else {
         return {'success': false, 'error': data['error'] ?? 'Login failed'};
@@ -1553,7 +1530,6 @@ class ApiService {
         };
       }
     } catch (e) {
-      print('Error getting notifications: $e');
       return {'success': false, 'error': 'Network error: $e'};
     }
   }
@@ -1579,18 +1555,8 @@ class ApiService {
           .timeout(const Duration(seconds: 30));
 
       final data = json.decode(response.body);
-      print('Staff verification response: $data');
-
-      if (response.statusCode == 200) {
-        return data;
-      } else {
-        return {
-          'success': false,
-          'error': data['error'] ?? 'Verification failed',
-        };
-      }
+      return data;
     } catch (e) {
-      print('Staff verification error: $e');
       return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
@@ -2037,7 +2003,6 @@ class ApiService {
           .timeout(const Duration(seconds: 30));
 
       final data = json.decode(response.body);
-      print('getVehiclesSharedByMe Response: $data');
 
       if (response.statusCode == 200 && data['success'] == true) {
         return {'success': true, 'data': data['data']};
@@ -2048,7 +2013,6 @@ class ApiService {
         };
       }
     } catch (e) {
-      print('getVehiclesSharedByMe Error: $e');
       return {'success': false, 'error': 'Network error: $e'};
     }
   }
@@ -2250,6 +2214,183 @@ class ApiService {
       };
     } catch (e) {
       return {'success': false, 'canShareVehicle': false};
+    }
+  }
+
+  // ==================== QR INVITE APIs ====================
+
+  Future<Map<String, dynamic>> generateInviteQr(
+    int familyId, {
+    int maxUses = 1,
+    int expiryHours = 24,
+  }) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/generate-invite-qr'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({
+              'familyId': familyId,
+              'maxUses': maxUses,
+              'expiryHours': expiryHours,
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'qrData': data['qrData'],
+          'token': data['token'],
+          'expiresAt': data['expiresAt'],
+          'expiryHours': data['expiryHours'],
+          'maxUses': data['maxUses'],
+          'message': data['message'],
+        };
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to generate QR',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  Future<Map<String, dynamic>> joinFamilyByQr(String qrData) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/family/join-by-qr'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: json.encode({'qrData': qrData}),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'familyId': data['familyId'],
+          'familyName': data['familyName'],
+          'message': data['message'],
+        };
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to join family',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  Future<Map<String, dynamic>> getInviteQrStatus(String token) async {
+    try {
+      final authToken = await getToken();
+      if (authToken == null) {
+        return {'valid': false, 'message': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/invite-qr-status/$token'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $authToken',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+      return data;
+    } catch (e) {
+      return {'valid': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  Future<Map<String, dynamic>> revokeInviteQr(String token) async {
+    try {
+      final authToken = await getToken();
+      if (authToken == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .delete(
+            Uri.parse('$baseUrl/family/revoke-invite-qr/$token'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $authToken',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to revoke invitation',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  Future<Map<String, dynamic>> getActiveInvites(int familyId) async {
+    try {
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/family/active-invites/$familyId'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {'success': true, 'data': data['data']};
+      } else {
+        return {
+          'success': false,
+          'error': data['error'] ?? 'Failed to get invites',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
 

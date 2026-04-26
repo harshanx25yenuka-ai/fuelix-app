@@ -30,6 +30,10 @@ import 'screens/family/family_notification_screen.dart';
 import 'screens/family/pending_invitations_screen.dart';
 import 'screens/family/edit_permissions_screen.dart';
 
+// QR Invite Screens
+import 'screens/family/generate_invite_qr_screen.dart';
+import 'screens/family/join_family_qr_scanner.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([
@@ -199,6 +203,28 @@ class FuelixApp extends StatelessWidget {
               familyInfo: args['familyInfo'],
               onPermissionsUpdated: args['onPermissionsUpdated'],
             ),
+          );
+        }
+
+        // ==================== QR INVITE SCREENS ====================
+
+        // Generate Invite QR Screen
+        if (settings.name == '/generate_invite_qr') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => GenerateInviteQrScreen(
+              user: args['user'],
+              familyId: args['familyId'],
+              familyName: args['familyName'],
+            ),
+          );
+        }
+
+        // Join Family via QR Scanner Screen
+        if (settings.name == '/join_family_qr') {
+          final args = settings.arguments as UserModel;
+          return MaterialPageRoute(
+            builder: (_) => JoinFamilyQrScannerScreen(user: args),
           );
         }
 

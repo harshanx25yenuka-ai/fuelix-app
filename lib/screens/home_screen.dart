@@ -15,6 +15,7 @@ import '../widgets/tutorial_overlay.dart';
 import '../screens/notifications_screen.dart';
 import '../screens/fuel_log_history_screen.dart';
 import '../screens/family/pending_invitations_screen.dart';
+import '../screens/family/join_family_qr_scanner.dart';
 import 'home/widgets/top_bar.dart';
 import 'home/widgets/welcome_card.dart';
 import 'home/widgets/stats_row.dart';
@@ -57,6 +58,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _hasPendingInvitations = false;
   bool _showFamilySharing = false;
 
+  // Join QR button visibility (only for users without family)
+  bool _showJoinQrButton = false;
+
   // Tutorial keys
   final _keyWelcome = GlobalKey();
   final _keyVehicles = GlobalKey();
@@ -66,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _keyNotifications = GlobalKey();
   final _keyRefreshButton = GlobalKey();
   final _keyFamilySharing = GlobalKey();
+  final _keyJoinQr = GlobalKey();
   bool _showTour = false;
 
   @override
@@ -139,6 +144,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       setState(() {
         _familyInfo = info;
         _hasFamily = info.hasFamily;
+        // Show join QR button only if user has NO family
+        _showJoinQrButton = !info.hasFamily;
+      });
+    } else {
+      setState(() {
+        _showJoinQrButton = true; // If no family info, show join button
       });
     }
   }
@@ -351,6 +362,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  void _joinFamilyViaQr() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => JoinFamilyQrScannerScreen(user: _user!),
+      ),
+    );
+  }
+
   void _logout() {
     showDialog(
       context: context,
@@ -472,7 +492,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     ),
 
-                    // Family Sharing Card
+                    // Join Family via QR Button - Only visible for users WITHOUT a family
+                    if (_showJoinQrButton)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                          child: KeyedSubtree(
+                            key: _keyJoinQr,
+                            child: _JoinFamilyQrButton(
+                              isDark: isDark,
+                              onTap: _joinFamilyViaQr,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    // Family Sharing Card - Only visible for users with vehicle pass OR pending invitations OR family
                     if (_showFamilySharing)
                       SliverToBoxAdapter(
                         child: Padding(
@@ -583,10 +618,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           position: TooltipPosition.below,
         ),
         TourStep(
+          targetKey: _keyJoinQr,
+          title: 'Join Family via QR',
+          body:
+              'Scan a family invitation QR code to join an existing family. (Only appears if you haven\'t joined a family)',
+          icon: Icons.qr_code_scanner_rounded,
+          gradient: [AppColors.amber, AppColors.emerald],
+          position: TooltipPosition.below,
+        ),
+        TourStep(
           targetKey: _keyFamilySharing,
           title: 'Family Sharing',
-          body:
-              'Create or join a family to share vehicles, wallet, and manage fuel together.',
+          body: 'Create or manage your family to share vehicles and wallet.',
           icon: Icons.family_restroom_rounded,
           gradient: [AppColors.emerald, AppColors.ocean],
           position: TooltipPosition.below,
@@ -633,6 +676,109 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (mounted) setState(() => _showTour = false);
       },
       child: screen,
+    );
+  }
+}
+
+// ==================== JOIN FAMILY QR BUTTON ====================
+
+class _JoinFamilyQrButton extends StatelessWidget {
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _JoinFamilyQrButton({required this.isDark, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [
+              AppColors.amber.withOpacity(0.85),
+              AppColors.emerald.withOpacity(0.85),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.amber.withOpacity(0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.white.withOpacity(0.2),
+              ),
+              child: const Icon(
+                Icons.qr_code_scanner_rounded,
+                size: 24,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Join Family via QR',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    'Scan a family invitation QR code',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: Colors.white.withOpacity(0.85),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                color: Colors.white.withOpacity(0.2),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Scan',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 10,
+                    color: Colors.white,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

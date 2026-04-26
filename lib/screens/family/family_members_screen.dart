@@ -6,6 +6,7 @@ import '../../models/family_models.dart';
 import '../../services/api_service.dart';
 import '../../widgets/custom_button.dart';
 import 'invite_member_screen.dart';
+import 'generate_invite_qr_screen.dart';
 
 class FamilyMembersScreen extends StatefulWidget {
   final UserModel user;
@@ -25,6 +26,7 @@ class FamilyMembersScreen extends StatefulWidget {
 
 class _FamilyMembersScreenState extends State<FamilyMembersScreen>
     with SingleTickerProviderStateMixin {
+  final ApiService _apiService = ApiService();
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
   bool _isRemoving = false;
@@ -90,8 +92,7 @@ class _FamilyMembersScreenState extends State<FamilyMembersScreen>
 
     setState(() => _isRemoving = true);
 
-    final apiService = ApiService();
-    final result = await apiService.removeFamilyMember(
+    final result = await _apiService.removeFamilyMember(
       widget.familyInfo.familyId!,
       memberId,
     );
@@ -122,6 +123,19 @@ class _FamilyMembersScreenState extends State<FamilyMembersScreen>
     if (result == true) {
       widget.onMemberChanged();
     }
+  }
+
+  void _generateInviteQr() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GenerateInviteQrScreen(
+          user: widget.user,
+          familyId: widget.familyInfo.familyId!,
+          familyName: widget.familyInfo.familyName!,
+        ),
+      ),
+    );
   }
 
   @override
@@ -175,14 +189,6 @@ class _FamilyMembersScreenState extends State<FamilyMembersScreen>
           ),
         ),
       ),
-      floatingActionButton: widget.familyInfo.canInvite
-          ? FloatingActionButton.extended(
-              onPressed: _inviteMember,
-              backgroundColor: AppColors.emerald,
-              icon: const Icon(Icons.person_add_rounded),
-              label: const Text('Invite'),
-            )
-          : null,
     );
   }
 
@@ -219,6 +225,18 @@ class _FamilyMembersScreenState extends State<FamilyMembersScreen>
               style: Theme.of(context).textTheme.headlineMedium,
             ),
           ),
+          if (widget.familyInfo.canInvite) ...[
+            IconButton(
+              icon: Icon(Icons.qr_code_rounded, color: AppColors.emerald),
+              onPressed: _generateInviteQr,
+              tooltip: 'Generate QR Invite',
+            ),
+            IconButton(
+              icon: Icon(Icons.person_add_rounded, color: AppColors.emerald),
+              onPressed: _inviteMember,
+              tooltip: 'Invite Member',
+            ),
+          ],
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
