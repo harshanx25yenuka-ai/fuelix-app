@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../widgets/custom_button.dart';
+import 'join_family_qr_scanner.dart';
 
 class CreateFamilyScreen extends StatefulWidget {
   final UserModel user;
@@ -75,6 +76,19 @@ class _CreateFamilyScreenState extends State<CreateFamilyScreen>
     setState(() => _isLoading = false);
   }
 
+  void _joinFamilyViaQr() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => JoinFamilyQrScannerScreen(user: widget.user),
+      ),
+    ).then((result) {
+      if (result == true) {
+        Navigator.pop(context, true);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -135,6 +149,45 @@ class _CreateFamilyScreenState extends State<CreateFamilyScreen>
                                   isLoading: _isLoading,
                                   colors: [AppColors.emerald, AppColors.ocean],
                                 ),
+                                const SizedBox(height: 16),
+
+                                // Optional Divider with "or"
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Divider(
+                                        color: isDark
+                                            ? AppColors.darkBorder
+                                            : AppColors.lightBorder,
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                      child: Text(
+                                        'or',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: isDark
+                                              ? AppColors.darkTextMuted
+                                              : AppColors.lightTextMuted,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Divider(
+                                        color: isDark
+                                            ? AppColors.darkBorder
+                                            : AppColors.lightBorder,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+
+                                // Optional: Join Existing Family Button
+                                _buildOptionalJoinCard(isDark),
                               ],
                             ),
                           ),
@@ -308,6 +361,99 @@ class _CreateFamilyScreenState extends State<CreateFamilyScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildOptionalJoinCard(bool isDark) {
+    return GestureDetector(
+      onTap: _joinFamilyViaQr,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [
+              AppColors.amber.withOpacity(0.85),
+              AppColors.emerald.withOpacity(0.85),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.amber.withOpacity(0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.white.withOpacity(0.2),
+              ),
+              child: const Icon(
+                Icons.qr_code_scanner_rounded,
+                size: 24,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Join Existing Family',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    'Scan a family invitation QR code',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: Colors.white.withOpacity(0.85),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                color: Colors.white.withOpacity(0.2),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Scan',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 10,
+                    color: Colors.white,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
