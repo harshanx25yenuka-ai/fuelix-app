@@ -56,10 +56,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _hasFamily = false;
   bool _hasVehiclePass = false;
   bool _hasPendingInvitations = false;
-  bool _showFamilySharing = false;
-
-  // Join QR button visibility (only for users without family)
-  bool _showJoinQrButton = false;
 
   // Tutorial keys
   final _keyWelcome = GlobalKey();
@@ -70,7 +66,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _keyNotifications = GlobalKey();
   final _keyRefreshButton = GlobalKey();
   final _keyFamilySharing = GlobalKey();
-  final _keyJoinQr = GlobalKey();
   bool _showTour = false;
 
   @override
@@ -128,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _loadFuelData(),
       _loadUnreadCount(),
       _loadFamilyInfo(),
-      _checkFamilySharingConditions(),
+      _checkFamilyConditions(),
     ]);
 
     setState(() => _isRefreshing = false);
@@ -144,17 +139,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       setState(() {
         _familyInfo = info;
         _hasFamily = info.hasFamily;
-        // Show join QR button only if user has NO family
-        _showJoinQrButton = !info.hasFamily;
-      });
-    } else {
-      setState(() {
-        _showJoinQrButton = true; // If no family info, show join button
       });
     }
   }
 
-  Future<void> _checkFamilySharingConditions() async {
+  Future<void> _checkFamilyConditions() async {
     if (_user?.id == null) return;
 
     final vehiclePassResult = await _apiService.hasVehiclePass();
@@ -165,11 +154,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final List<dynamic> invitations = invitationsResult['data'] ?? [];
       _hasPendingInvitations = invitations.isNotEmpty;
     }
-
-    setState(() {
-      _showFamilySharing =
-          _hasVehiclePass || _hasPendingInvitations || _hasFamily;
-    });
   }
 
   Future<void> _loadVehicles() async {
@@ -344,7 +328,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _goToFamilySharing() async {
+  void _handleFamilyAction() async {
+    // Condition 3: Has pending invitation -> Show acceptance screen
     if (_hasPendingInvitations && !_hasFamily) {
       final result = await Navigator.push(
         context,
@@ -355,64 +340,84 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (result == true) {
         await _loadAll();
       }
-    } else if (_hasFamily && _familyInfo != null) {
+    }
+    // Condition 4: Has family -> Go to family home (Manage)
+    else if (_hasFamily && _familyInfo != null) {
       Navigator.pushNamed(context, '/family_home', arguments: _user);
-    } else if (_hasVehiclePass && !_hasFamily) {
+    }
+    // Condition 2: No family, has vehicle pass -> Create family
+    else if (_hasVehiclePass && !_hasFamily) {
       Navigator.pushNamed(context, '/create_family', arguments: _user);
+    }
+    // Condition 1: No family, no vehicle pass -> Join via QR
+    else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => JoinFamilyQrScannerScreen(user: _user!),
+        ),
+      );
     }
   }
 
-  void _joinFamilyViaQr() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => JoinFamilyQrScannerScreen(user: _user!),
-      ),
-    );
+  String _getFamilyButtonText() {
+    if (_hasPendingInvitations && !_hasFamily) {
+      return 'View Invitations';
+    } else if (_hasFamily && _familyInfo != null) {
+      return 'Manage';
+    } else if (_hasVehiclePass && !_hasFamily) {
+      return 'Create Family';
+    } else {
+      return 'Join Family';
+    }
   }
 
-  void _logout() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          'Sign Out',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        content: Text(
-          'Are you sure you want to sign out of Fuelix?',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.spaceGrotesk(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? AppColors.darkTextSub
-                    : AppColors.lightTextSub,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.pushReplacementNamed(context, '/login');
-            },
-            child: Text(
-              'Sign Out',
-              style: GoogleFonts.spaceGrotesk(
-                color: AppColors.error,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  String _getFamilySubtitle() {
+    if (_hasPendingInvitations && !_hasFamily) {
+      return 'You have pending family invitations';
+    } else if (_hasFamily && _familyInfo != null) {
+      return '${_familyInfo!.familyName} • ${_familyInfo!.members.length} members';
+    } else if (_hasVehiclePass && !_hasFamily) {
+      return 'Share vehicles and wallet with family';
+    } else {
+      return 'Scan QR code to join an existing family';
+    }
+  }
+
+  IconData _getFamilyIcon() {
+    if (_hasPendingInvitations && !_hasFamily) {
+      return Icons.mail_rounded;
+    } else if (_hasFamily && _familyInfo != null) {
+      return Icons.family_restroom_rounded;
+    } else if (_hasVehiclePass && !_hasFamily) {
+      return Icons.group_add_rounded;
+    } else {
+      return Icons.qr_code_scanner_rounded;
+    }
+  }
+
+  List<Color> _getFamilyGradient() {
+    if (_hasPendingInvitations && !_hasFamily) {
+      return [
+        AppColors.amber.withOpacity(0.9),
+        AppColors.emerald.withOpacity(0.9),
+      ];
+    } else if (_hasFamily && _familyInfo != null) {
+      return [
+        AppColors.emerald.withOpacity(0.9),
+        AppColors.ocean.withOpacity(0.9),
+      ];
+    } else if (_hasVehiclePass && !_hasFamily) {
+      return [
+        AppColors.ocean.withOpacity(0.9),
+        AppColors.emerald.withOpacity(0.9),
+      ];
+    } else {
+      return [
+        AppColors.amber.withOpacity(0.85),
+        AppColors.emerald.withOpacity(0.85),
+      ];
+    }
   }
 
   @override
@@ -492,40 +497,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     ),
 
-                    // Join Family via QR Button - Only visible for users WITHOUT a family
-                    if (_showJoinQrButton)
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                          child: KeyedSubtree(
-                            key: _keyJoinQr,
-                            child: _JoinFamilyQrButton(
-                              isDark: isDark,
-                              onTap: _joinFamilyViaQr,
-                            ),
+                    // Family Sharing Card - Always visible
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+                        child: KeyedSubtree(
+                          key: _keyFamilySharing,
+                          child: _FamilySharingCard(
+                            icon: _getFamilyIcon(),
+                            title: 'Family Sharing',
+                            subtitle: _getFamilySubtitle(),
+                            buttonText: _getFamilyButtonText(),
+                            gradient: _getFamilyGradient(),
+                            isDark: isDark,
+                            onTap: _handleFamilyAction,
                           ),
                         ),
                       ),
-
-                    // Family Sharing Card - Only visible for users with vehicle pass OR pending invitations OR family
-                    if (_showFamilySharing)
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
-                          child: KeyedSubtree(
-                            key: _keyFamilySharing,
-                            child: _FamilySharingCard(
-                              hasFamily: _hasFamily,
-                              familyName: _familyInfo?.familyName,
-                              memberCount: _familyInfo?.members.length ?? 0,
-                              hasPendingInvitations: _hasPendingInvitations,
-                              hasVehiclePass: _hasVehiclePass,
-                              isDark: isDark,
-                              onTap: _goToFamilySharing,
-                            ),
-                          ),
-                        ),
-                      ),
+                    ),
 
                     SliverToBoxAdapter(
                       child: Padding(
@@ -618,18 +607,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           position: TooltipPosition.below,
         ),
         TourStep(
-          targetKey: _keyJoinQr,
-          title: 'Join Family via QR',
-          body:
-              'Scan a family invitation QR code to join an existing family. (Only appears if you haven\'t joined a family)',
-          icon: Icons.qr_code_scanner_rounded,
-          gradient: [AppColors.amber, AppColors.emerald],
-          position: TooltipPosition.below,
-        ),
-        TourStep(
           targetKey: _keyFamilySharing,
           title: 'Family Sharing',
-          body: 'Create or manage your family to share vehicles and wallet.',
+          body:
+              'Create, join, or manage your family to share vehicles and wallet.',
           icon: Icons.family_restroom_rounded,
           gradient: [AppColors.emerald, AppColors.ocean],
           position: TooltipPosition.below,
@@ -680,33 +661,43 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 }
 
-// ==================== JOIN FAMILY QR BUTTON ====================
+// ==================== FAMILY SHARING CARD WIDGET ====================
 
-class _JoinFamilyQrButton extends StatelessWidget {
+class _FamilySharingCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String buttonText;
+  final List<Color> gradient;
   final bool isDark;
   final VoidCallback onTap;
 
-  const _JoinFamilyQrButton({required this.isDark, required this.onTap});
+  const _FamilySharingCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.buttonText,
+    required this.gradient,
+    required this.isDark,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
-            colors: [
-              AppColors.amber.withOpacity(0.85),
-              AppColors.emerald.withOpacity(0.85),
-            ],
+            colors: gradient,
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.amber.withOpacity(0.25),
+              color: gradient.first.withOpacity(0.3),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -715,17 +706,13 @@ class _JoinFamilyQrButton extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 color: Colors.white.withOpacity(0.2),
               ),
-              child: const Icon(
-                Icons.qr_code_scanner_rounded,
-                size: 24,
-                color: Colors.white,
-              ),
+              child: Icon(icon, size: 26, color: Colors.white),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -733,17 +720,18 @@ class _JoinFamilyQrButton extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Join Family via QR',
+                    title,
                     style: GoogleFonts.spaceGrotesk(
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
                     ),
                   ),
+                  const SizedBox(height: 4),
                   Text(
-                    'Scan a family invitation QR code',
+                    subtitle,
                     style: GoogleFonts.inter(
-                      fontSize: 11,
+                      fontSize: 12,
                       color: Colors.white.withOpacity(0.85),
                     ),
                   ),
@@ -760,7 +748,7 @@ class _JoinFamilyQrButton extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Scan',
+                    buttonText,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -772,170 +760,6 @@ class _JoinFamilyQrButton extends StatelessWidget {
                     Icons.arrow_forward_ios_rounded,
                     size: 10,
                     color: Colors.white,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==================== FAMILY SHARING CARD WIDGET ====================
-
-class _FamilySharingCard extends StatelessWidget {
-  final bool hasFamily;
-  final String? familyName;
-  final int memberCount;
-  final bool hasPendingInvitations;
-  final bool hasVehiclePass;
-  final bool isDark;
-  final VoidCallback onTap;
-
-  const _FamilySharingCard({
-    required this.hasFamily,
-    this.familyName,
-    required this.memberCount,
-    required this.hasPendingInvitations,
-    required this.hasVehiclePass,
-    required this.isDark,
-    required this.onTap,
-  });
-
-  String get _title {
-    if (hasFamily) return 'Family Sharing';
-    if (hasPendingInvitations) return 'Family Invitations';
-    if (hasVehiclePass) return 'Start Family Sharing';
-    return 'Family Sharing';
-  }
-
-  String get _subtitle {
-    if (hasFamily)
-      return '$familyName • $memberCount member${memberCount != 1 ? 's' : ''}';
-    if (hasPendingInvitations) return 'You have pending family invitations';
-    if (hasVehiclePass) return 'Share vehicles and wallet with family';
-    return 'Create or join a family';
-  }
-
-  String get _buttonText {
-    if (hasFamily) return 'Manage';
-    if (hasPendingInvitations) return 'View';
-    return 'Create';
-  }
-
-  IconData get _icon {
-    if (hasFamily) return Icons.family_restroom_rounded;
-    if (hasPendingInvitations) return Icons.mail_rounded;
-    return Icons.group_add_rounded;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final gradientColors = hasFamily
-        ? [AppColors.emerald.withOpacity(0.9), AppColors.ocean.withOpacity(0.9)]
-        : hasPendingInvitations
-        ? [AppColors.amber.withOpacity(0.9), AppColors.emerald.withOpacity(0.9)]
-        : [
-            AppColors.emerald.withOpacity(0.15),
-            AppColors.ocean.withOpacity(0.15),
-          ];
-
-    final textColor = (hasFamily || hasPendingInvitations)
-        ? Colors.white
-        : null;
-    final subtitleColor = (hasFamily || hasPendingInvitations)
-        ? Colors.white.withOpacity(0.8)
-        : (isDark ? AppColors.darkTextSub : AppColors.lightTextSub);
-    final iconColor = (hasFamily || hasPendingInvitations)
-        ? Colors.white
-        : AppColors.emerald;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            colors: gradientColors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(
-            color: (hasFamily || hasPendingInvitations)
-                ? Colors.transparent
-                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                color: (hasFamily || hasPendingInvitations)
-                    ? Colors.white.withOpacity(0.2)
-                    : AppColors.emerald.withOpacity(0.2),
-              ),
-              child: Icon(_icon, size: 26, color: iconColor),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _title,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color:
-                          textColor ??
-                          (isDark ? AppColors.darkText : AppColors.lightText),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _subtitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: subtitleColor,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                color: (hasFamily || hasPendingInvitations)
-                    ? Colors.white.withOpacity(0.2)
-                    : AppColors.emerald.withOpacity(0.15),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _buttonText,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: (hasFamily || hasPendingInvitations)
-                          ? Colors.white
-                          : AppColors.emerald,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 10,
-                    color: (hasFamily || hasPendingInvitations)
-                        ? Colors.white
-                        : AppColors.emerald,
                   ),
                 ],
               ),
